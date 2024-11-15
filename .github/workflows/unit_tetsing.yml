@@ -67,4 +67,4 @@ jobs:
         uses: 'google-github-actions/upload-cloud-storage@v2'
         with:
           path: 'coverage/coverage.xml'
-          bucket: 'coverage-ggsdc/master'
+          destination: 'coverage-ggsdc/master'
