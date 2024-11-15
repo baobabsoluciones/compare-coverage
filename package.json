@@ -20,7 +20,8 @@
   },
   "devDependencies": {
     "jest": "^29.7.0",
-    "@vercel/ncc": "^0.38.1"
+    "@vercel/ncc": "^0.38.1",
+    "jest-junit": "^16.0.0"
   },
   "jest": {
     "collectCoverageFrom": [
@@ -29,7 +30,8 @@
     "coverageReporters": [
       "json-summary",
       "text",
-      "lcov"
+      "lcov",
+      "cobertura"
     ],
     "coverageThreshold": {
       "global": {

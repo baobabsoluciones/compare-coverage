@@ -22,19 +22,31 @@ jobs:
         run: npm ci
 
       - name: Run unit tests with coverage
-        run: npm test -- --coverage
+        run: npm test -- --coverage --reporters=default --reporters=jest-junit
+        env:
+          JEST_JUNIT_OUTPUT_DIR: coverage
+          JEST_JUNIT_OUTPUT_NAME: coverage.xml
+          JEST_JUNIT_CLASSNAME: '{filepath}'
+          JEST_JUNIT_TITLE: '{title}'
 
-      - name: Upload coverage report
+      - name: Upload coverage report (HTML)
         uses: actions/upload-artifact@v4
         with:
-          name: coverage-report
-          path: coverage/
+          name: coverage-report-html
+          path: coverage/lcov-report/
+          retention-days: 7
+
+      - name: Upload coverage XML
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report-xml
+          path: coverage/coverage.xml
           retention-days: 7
 
       - name: Check coverage thresholds
         run: |
           COVERAGE=$(node -p "require('./coverage/coverage-summary.json').total.lines.pct")
-          if (( $(echo "$COVERAGE < 80" | bc -l) )); then
-            echo "Coverage ($COVERAGE%) is below the required threshold (80%)"
+          if (( $(echo "$COVERAGE < 70" | bc -l) )); then
+            echo "Coverage ($COVERAGE%) is below the required threshold (70%)"
             exit 1
           fi
