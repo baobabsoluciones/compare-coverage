@@ -15,6 +15,7 @@ jobs:
         uses: ./ # Uses an action in the root directory
         with:
           gcp_credentials: ${{ secrets.GCP_CREDENTIALS }}
+          gcp_bucket: ${{ secrets.GCP_COVERAGE_BUCKET }}
           base_coverage_path: 'coverage/main/coverage.xml'
           head_coverage_path: 'coverage/pr/coverage.xml'
           min_coverage: '80'

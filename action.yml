@@ -13,7 +13,10 @@ inputs:
   github_token:
     description: 'GitHub token for PR comments'
     required: true
-    default: ${{ github.token }}
+    default: 'fake_token'
+  gcp_bucket:
+    description: 'GCP bucket name where coverage reports are stored'
+    required: true
 
 runs:
   using: 'node16'
