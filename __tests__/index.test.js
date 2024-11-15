@@ -150,4 +150,64 @@ describe('Coverage Action', () => {
       expect.stringContaining('Could not find coverage reports')
     );
   });
+
+  test('should calculate coverage differences correctly', async () => {
+    // Mock coverage files with different coverage rates
+    const baseCoverageXML = `
+      <coverage line-rate="0.8" branch-rate="0.75">
+        <packages>
+          <package>
+            <classes>
+              <class filename="file1.js">
+                <lines>
+                  <line number="1" hits="1"/>
+                  <line number="2" hits="0"/>
+                </lines>
+              </class>
+            </classes>
+          </package>
+        </packages>
+      </coverage>`;
+
+    const headCoverageXML = `
+      <coverage line-rate="0.85" branch-rate="0.80">
+        <packages>
+          <package>
+            <classes>
+              <class filename="file1.js">
+                <lines>
+                  <line number="1" hits="1"/>
+                  <line number="2" hits="1"/>
+                  <line number="3" hits="1"/>
+                </lines>
+              </class>
+            </classes>
+          </package>
+        </packages>
+      </coverage>`;
+
+    // Setup the Storage mock with our test coverage files
+    Storage.mockImplementation(() => ({
+      bucket: jest.fn().mockReturnValue({
+        getFiles: jest.fn().mockResolvedValue([[
+          { name: 'repo/main/20240315_120000/coverage.xml' },
+          { name: 'repo/feature-branch/20240315_120000/coverage.xml' }
+        ]]),
+        file: jest.fn().mockReturnValue({
+          download: jest.fn()
+            .mockResolvedValueOnce([baseCoverageXML])
+            .mockResolvedValueOnce([headCoverageXML])
+        })
+      })
+    }));
+
+    await run();
+
+    expect(core.info).toHaveBeenCalledWith(
+      expect.stringContaining('Coverage difference: 5.00%')
+    );
+    expect(core.info).toHaveBeenCalledWith(
+      expect.stringContaining('New lines covered in head: 2')
+    );
+  });
 }); 

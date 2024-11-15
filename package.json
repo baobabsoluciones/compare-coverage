@@ -28,12 +28,9 @@
       "src/**/*.js"
     ],
     "coverageReporters": [
-      "json-summary",
-      "text",
-      "lcov",
-      "cobertura",
-      "clover"
+      "cobertura"
     ],
+    "coverageDirectory": "coverage",
     "coveragePathIgnorePatterns": [
       "/node_modules/"
     ],

@@ -27,36 +27,20 @@ jobs:
         run: npm ci
 
       - name: Run unit tests with coverage
-        run: npm test -- --coverage --reporters=default --reporters=jest-junit
-        env:
-          JEST_JUNIT_OUTPUT_DIR: coverage
-          JEST_JUNIT_OUTPUT_NAME: junit.xml
-          JEST_JUNIT_CLASSNAME: '{filepath}'
-          JEST_JUNIT_TITLE: '{title}'
-          JEST_JUNIT_INCLUDE_CONSOLE_OUTPUT: true
+        run: |
+          npm test -- --coverage
+          mv coverage/cobertura-coverage.xml coverage/coverage.xml
 
       - name: Upload coverage reports
         uses: actions/upload-artifact@v4
         with:
-          name: coverage-reports
-          path: |
-            coverage/clover.xml
-            coverage/cobertura-coverage.xml
-            coverage/junit.xml
-            coverage/lcov.info
-            coverage/coverage-summary.json
-          retention-days: 7
-
-      - name: Upload HTML report
-        uses: actions/upload-artifact@v4
-        with:
-          name: coverage-report-html
-          path: coverage/lcov-report/
+          name: coverage-report
+          path: coverage/coverage.xml
           retention-days: 7
 
       - name: Check coverage thresholds
         run: |
-          COVERAGE=$(node -p "require('./coverage/coverage-summary.json').total.lines.pct")
+          COVERAGE=$(node -p "const xml = require('fs').readFileSync('coverage/coverage.xml', 'utf8'); const match = xml.match(/line-rate=\"([0-9.]+)\"/); (parseFloat(match[1]) * 100).toFixed(2);")
           if (( $(echo "$COVERAGE < 70" | bc -l) )); then
             echo "Coverage ($COVERAGE%) is below the required threshold (70%)"
             exit 1
@@ -88,7 +72,7 @@ jobs:
       - name: Upload to GCE bucket - upload coverage reports
         uses: 'google-github-actions/upload-cloud-storage@v2'
         with:
-          path: 'coverage/cobertura-coverage.xml'
+          path: 'coverage/coverage.xml'
           destination: '${{ secrets.GCP_COVERAGE_BUCKET }}/${{ steps.repo-name.outputs.repo_name }}/${{ steps.branch-name.outputs.branch }}/${{ steps.timestamp.outputs.timestamp }}'
 
   compare-coverage:

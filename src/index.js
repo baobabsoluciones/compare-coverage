@@ -51,8 +51,8 @@ async function run() {
     core.info(`Found latest head coverage at timestamp: ${headTimestamp}`);
 
     // Construct full paths to coverage files
-    const baseCoveragePath = `${basePath}/${baseTimestamp}/cobertura-coverage.xml`;
-    const headCoveragePath = `${headPath}/${headTimestamp}/cobertura-coverage.xml`;
+    const baseCoveragePath = `${basePath}/${baseTimestamp}/coverage.xml`;
+    const headCoveragePath = `${headPath}/${headTimestamp}/coverage.xml`;
 
     core.info(`Downloading base coverage from: ${baseCoveragePath}`);
     core.info(`Downloading head coverage from: ${headCoveragePath}`);
@@ -61,7 +61,26 @@ async function run() {
     const baseCoverageContent = await downloadFile(bucket, baseCoveragePath);
     const headCoverageContent = await downloadFile(bucket, headCoveragePath);
 
-    // Rest of your code...
+    // Parse XML files
+    const parser = new xml2js.Parser();
+    const baseCoverage = await parser.parseStringPromise(baseCoverageContent);
+    const headCoverage = await parser.parseStringPromise(headCoverageContent);
+
+    // Calculate coverage metrics
+    const baseMetrics = getCoverageMetrics(baseCoverage);
+    const headMetrics = getCoverageMetrics(headCoverage);
+
+    // Calculate coverage difference (positive if head has more coverage)
+    const coverageDiff = headMetrics.lineRate - baseMetrics.lineRate;
+    const coverageDiffPercent = (coverageDiff * 100).toFixed(2);
+
+    // Calculate new lines covered in head
+    const newLinesCovered = calculateNewLinesCovered(baseCoverage, headCoverage);
+
+    // Log the results
+    core.info(`Coverage difference: ${coverageDiffPercent}% (${coverageDiff >= 0 ? 'increased' : 'decreased'})`);
+    core.info(`New lines covered in head: ${newLinesCovered}`);
+
   } catch (error) {
     core.setFailed(error.message);
   }
@@ -106,6 +125,54 @@ async function downloadFile(bucket, filePath) {
   } catch (error) {
     throw new Error(`Failed to download file ${filePath}: ${error.message}`);
   }
+}
+
+function getCoverageMetrics(coverageData) {
+  const coverage = coverageData.coverage;
+  return {
+    lineRate: parseFloat(coverage.$['line-rate']),
+    branchRate: parseFloat(coverage.$['branch-rate']),
+    complexity: parseFloat(coverage.$.complexity || 0),
+    timestamp: coverage.$.timestamp
+  };
+}
+
+function calculateNewLinesCovered(baseCoverage, headCoverage) {
+  let newLinesCovered = 0;
+  const baseFiles = new Map();
+
+  // Index base files
+  baseCoverage.coverage.packages[0].package.forEach(pkg => {
+    pkg.classes[0].class.forEach(cls => {
+      baseFiles.set(cls.$.filename, getLineCoverage(cls.lines[0].line));
+    });
+  });
+
+  // Compare with head files
+  headCoverage.coverage.packages[0].package.forEach(pkg => {
+    pkg.classes[0].class.forEach(cls => {
+      const filename = cls.$.filename;
+      const headLines = getLineCoverage(cls.lines[0].line);
+      const baseLines = baseFiles.get(filename) || new Map();
+
+      // Check each line in head
+      headLines.forEach((hits, lineNum) => {
+        if (hits > 0 && (!baseLines.has(lineNum) || baseLines.get(lineNum) === 0)) {
+          newLinesCovered++;
+        }
+      });
+    });
+  });
+
+  return newLinesCovered;
+}
+
+function getLineCoverage(lines) {
+  const coverage = new Map();
+  lines.forEach(line => {
+    coverage.set(parseInt(line.$.number), parseInt(line.$.hits));
+  });
+  return coverage;
 }
 
 module.exports = { run };
