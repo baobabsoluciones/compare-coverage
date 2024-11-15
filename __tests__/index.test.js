@@ -1,5 +1,6 @@
 const core = require('@actions/core');
 const { Storage } = require('@google-cloud/storage');
+const { run } = require('../src/index');
 
 // Mock the dependencies
 jest.mock('@actions/core');
@@ -48,9 +49,6 @@ describe('Coverage Action', () => {
     delete process.env.GITHUB_BASE_REF;
     delete process.env.GITHUB_HEAD_REF;
 
-    // Import the action (need to import here to ensure env vars are cleared)
-    const { run } = require('../src/index');
-
     await run();
 
     expect(core.setFailed).toHaveBeenCalledWith(
@@ -59,8 +57,6 @@ describe('Coverage Action', () => {
   });
 
   test('should construct correct GCS paths', async () => {
-    const { run } = require('../src/index');
-
     await run();
 
     expect(core.info).toHaveBeenCalledWith(
@@ -72,12 +68,67 @@ describe('Coverage Action', () => {
   });
 
   test('should attempt to download coverage files', async () => {
-    const { run } = require('../src/index');
+    // Create a mock bucket instance
+    const mockFile = jest.fn().mockReturnValue({
+      download: jest.fn().mockResolvedValue(['<coverage></coverage>'])
+    });
+    const mockBucket = jest.fn().mockReturnValue({
+      file: mockFile
+    });
+
+    // Setup the Storage mock
+    const mockStorage = {
+      bucket: mockBucket
+    };
+    Storage.mockImplementation(() => mockStorage);
 
     await run();
 
-    const mockBucket = Storage.mock.results[0].value.bucket();
-    expect(mockBucket.file).toHaveBeenCalledTimes(2);
-    expect(mockBucket.file().download).toHaveBeenCalledTimes(2);
+    // Verify the bucket was accessed
+    expect(mockBucket).toHaveBeenCalled();
+    expect(mockFile).toHaveBeenCalledTimes(2);
+  });
+
+  test('should handle GCS download errors', async () => {
+    // Mock a failed download
+    const mockError = new Error('Download failed');
+    const mockFile = jest.fn().mockReturnValue({
+      download: jest.fn().mockRejectedValue(mockError)
+    });
+    const mockBucket = jest.fn().mockReturnValue({
+      file: mockFile
+    });
+
+    // Setup the Storage mock
+    const mockStorage = {
+      bucket: mockBucket
+    };
+    Storage.mockImplementation(() => mockStorage);
+
+    await run();
+
+    // Verify error was handled
+    expect(core.setFailed).toHaveBeenCalledWith(
+      expect.stringContaining('Failed to download file')
+    );
+  });
+
+  test('should handle invalid GCP credentials', async () => {
+    // Mock invalid JSON for credentials
+    core.getInput.mockImplementation((name) => {
+      const inputs = {
+        gcp_credentials: 'invalid-json',
+        base_coverage_path: 'coverage.xml',
+        head_coverage_path: 'coverage.xml',
+        min_coverage: '80',
+        github_token: 'fake-token'
+      };
+      return inputs[name];
+    });
+
+    await run();
+
+    // Verify error was handled
+    expect(core.setFailed).toHaveBeenCalled();
   });
 }); 

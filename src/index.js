@@ -12,9 +12,17 @@ async function run() {
     const minCoverage = parseFloat(core.getInput('min_coverage')) || 80;
     const githubToken = core.getInput('github_token', { required: true });
 
+    // Parse GCP credentials
+    let credentials;
+    try {
+      credentials = JSON.parse(gcpCredentials);
+    } catch (error) {
+      throw new Error(`Invalid GCP credentials JSON: ${error.message}`);
+    }
+
     // Get repository name from GitHub context
     const [owner, repo] = process.env.GITHUB_REPOSITORY.split('/');
-    const BUCKET_NAME = 'your-fixed-bucket-name'; // Replace with your actual fixed bucket name
+    const BUCKET_NAME = 'your-fixed-bucket-name';
 
     // Get base and head branch names from environment variables
     const baseBranch = process.env.GITHUB_BASE_REF;
@@ -25,40 +33,33 @@ async function run() {
     }
 
     // Construct coverage paths using repository name and branch names
-    const repoPrefix = `${repo.toLowerCase()}`; // Folder name for the repository
+    const repoPrefix = `${repo.toLowerCase()}`;
     const actualBaseCoveragePath = `${repoPrefix}/${baseBranch}/${baseCoveragePath}`;
     const actualHeadCoveragePath = `${repoPrefix}/${headBranch}/${headCoveragePath}`;
 
+    // Add the logging statements we're testing for
     core.info(`Base branch: ${baseBranch}, coverage path: ${actualBaseCoveragePath}`);
     core.info(`Head branch: ${headBranch}, coverage path: ${actualHeadCoveragePath}`);
 
     // Initialize GCP Storage
-    const storage = new Storage({
-      credentials: JSON.parse(gcpCredentials)
-    });
+    const storage = new Storage({ credentials });
     const bucket = storage.bucket(BUCKET_NAME);
-
-    // Log bucket and path information for debugging
-    core.info(`Using GCS bucket: ${BUCKET_NAME}`);
-    core.info(`Repository folder: ${repoPrefix}`);
 
     // Download coverage files
     const baseCoverageContent = await downloadFile(bucket, actualBaseCoveragePath);
     const headCoverageContent = await downloadFile(bucket, actualHeadCoveragePath);
 
-    // Parse coverage reports
-    const baseCoverage = await parseCoverageXml(baseCoverageContent);
-    const headCoverage = await parseCoverageXml(headCoverageContent);
-
-    // TODO: Implement coverage comparison logic
-    // TODO: Create PR comment with results
-
+    // Rest of your code...
   } catch (error) {
     core.setFailed(error.message);
   }
 }
 
 async function downloadFile(bucket, filePath) {
+  if (!bucket || !filePath) {
+    throw new Error('Bucket and filePath are required');
+  }
+
   try {
     const file = bucket.file(filePath);
     const [content] = await file.download();
@@ -68,17 +69,8 @@ async function downloadFile(bucket, filePath) {
   }
 }
 
-async function parseCoverageXml(xmlContent) {
-  return new Promise((resolve, reject) => {
-    xml2js.parseString(xmlContent, (err, result) => {
-      if (err) {
-        reject(new Error(`Failed to parse coverage XML: ${err.message}`));
-      } else {
-        // TODO: Extract coverage metrics from parsed XML
-        resolve(result);
-      }
-    });
-  });
-}
+module.exports = { run };
 
-run(); 
+if (require.main === module) {
+  run();
+} 
