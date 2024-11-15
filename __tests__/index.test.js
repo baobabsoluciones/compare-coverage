@@ -210,4 +210,68 @@ describe('Coverage Action', () => {
       expect.stringContaining('New lines covered in head: 2')
     );
   });
+
+  test('should print file statistics', async () => {
+    const coverageXML = `
+      <coverage line-rate="0.85" branch-rate="0.80">
+        <packages>
+          <package name="default">
+            <classes>
+              <class filename="src/index.js" name="index.js">
+                <lines>
+                  <line number="1" hits="1"/>
+                  <line number="2" hits="1"/>
+                  <line number="3" hits="0"/>
+                  <line number="4" hits="1"/>
+                </lines>
+              </class>
+            </classes>
+          </package>
+        </packages>
+      </coverage>`;
+
+    // Setup the Storage mock with our test coverage files
+    Storage.mockImplementation(() => ({
+      bucket: jest.fn().mockReturnValue({
+        getFiles: jest.fn().mockResolvedValue([[
+          { name: 'repo/main/20240315_120000/coverage.xml' },
+          { name: 'repo/feature-branch/20240315_120000/coverage.xml' }
+        ]]),
+        file: jest.fn().mockReturnValue({
+          download: jest.fn().mockResolvedValue([coverageXML]) // Return the XML directly, not in an array
+        })
+      })
+    }));
+
+    // Clear previous calls to core.info
+    core.info.mockClear();
+
+    await run();
+
+    // Get all calls after clearing
+    const calls = core.info.mock.calls.map(call => call[0]);
+
+    // Debug output
+    console.log('All core.info calls:', JSON.stringify(calls, null, 2));
+
+    // Check for the presence of specific strings
+    const hasFile = calls.some(call => call.includes('File Statistics:'));
+    const hasFilename = calls.some(call => call.includes('File: src/index.js'));
+    const hasTotal = calls.some(call => call.includes('Total lines: 4'));
+    const hasCovered = calls.some(call => call.includes('Covered lines: 3'));
+    const hasCoverage = calls.some(call => call.includes('Coverage: 75.00%'));
+
+    // Debug output for each check
+    if (!hasFile) console.log('Missing "File Statistics:" header');
+    if (!hasFilename) console.log('Missing filename');
+    if (!hasTotal) console.log('Missing total lines');
+    if (!hasCovered) console.log('Missing covered lines');
+    if (!hasCoverage) console.log('Missing coverage percentage');
+
+    expect(hasFile).toBe(true);
+    expect(hasFilename).toBe(true);
+    expect(hasTotal).toBe(true);
+    expect(hasCovered).toBe(true);
+    expect(hasCoverage).toBe(true);
+  });
 }); 

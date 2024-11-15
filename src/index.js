@@ -81,6 +81,10 @@ async function run() {
     core.info(`Coverage difference: ${coverageDiffPercent}% (${coverageDiff >= 0 ? 'increased' : 'decreased'})`);
     core.info(`New lines covered in head: ${newLinesCovered}`);
 
+    // Print file statistics
+    core.info('\nFile coverage statistics:');
+    printFileStatistics(headCoverage);
+
   } catch (error) {
     core.setFailed(error.message);
   }
@@ -121,7 +125,8 @@ async function downloadFile(bucket, filePath) {
   try {
     const file = bucket.file(filePath);
     const [content] = await file.download();
-    return content.toString();
+    // If content is a Buffer or array, convert to string
+    return content.toString ? content.toString() : content;
   } catch (error) {
     throw new Error(`Failed to download file ${filePath}: ${error.message}`);
   }
@@ -173,6 +178,44 @@ function getLineCoverage(lines) {
     coverage.set(parseInt(line.$.number), parseInt(line.$.hits));
   });
   return coverage;
+}
+
+function printFileStatistics(coverage) {
+  try {
+    if (!coverage.coverage.packages || !coverage.coverage.packages[0].package) {
+      core.warning('No packages found in coverage data');
+      return;
+    }
+
+    coverage.coverage.packages[0].package.forEach(pkg => {
+      if (!pkg.classes || !pkg.classes[0] || !pkg.classes[0].class) {
+        core.warning('No classes found in package');
+        return;
+      }
+
+      pkg.classes[0].class.forEach(cls => {
+        if (!cls.$ || !cls.lines || !cls.lines[0] || !cls.lines[0].line) {
+          core.warning('Invalid class structure');
+          return;
+        }
+
+        const filename = cls.$.filename;
+        const lines = cls.lines[0].line;
+        const totalLines = lines.length;
+        const coveredLines = lines.filter(line => parseInt(line.$.hits) > 0).length;
+        const coveragePercent = ((coveredLines / totalLines) * 100).toFixed(2);
+
+        core.info('\nFile Statistics:');
+        core.info(`File: ${filename}`);
+        core.info(`Total lines: ${totalLines}`);
+        core.info(`Covered lines: ${coveredLines}`);
+        core.info(`Coverage: ${coveragePercent}%`);
+        core.info('---');
+      });
+    });
+  } catch (error) {
+    core.warning(`Error printing file statistics: ${error.message}`);
+  }
 }
 
 module.exports = { run };
