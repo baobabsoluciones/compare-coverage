@@ -1,0 +1,41 @@
+{
+  "name": "coverage-action",
+  "version": "1.0.0",
+  "description": "Test repo to create a custom github action for checking the coverage for PR",
+  "main": "index.js",
+  "scripts": {
+    "test": "jest",
+    "build": "ncc build src/index.js -o dist"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@actions/core": "^1.11.1",
+    "@actions/github": "^6.0.0",
+    "@google-cloud/storage": "^7.14.0",
+    "xml2js": "^0.6.2"
+  },
+  "devDependencies": {
+    "jest": "^29.7.0",
+    "@vercel/ncc": "^0.38.1"
+  },
+  "jest": {
+    "collectCoverageFrom": [
+      "src/**/*.js"
+    ],
+    "coverageReporters": [
+      "json-summary",
+      "text",
+      "lcov"
+    ],
+    "coverageThreshold": {
+      "global": {
+        "branches": 80,
+        "functions": 80,
+        "lines": 80,
+        "statements": 80
+      }
+    }
+  }
+}
