@@ -26,17 +26,21 @@ describe('Coverage Action', () => {
     core.getInput.mockImplementation((name) => {
       const inputs = {
         gcp_credentials: '{"type": "service_account"}',
-        base_coverage_path: 'coverage.xml',
-        head_coverage_path: 'coverage.xml',
         min_coverage: '80',
-        github_token: 'fake-token'
+        github_token: 'fake-token',
+        gcp_bucket: 'test-bucket'
       };
       return inputs[name];
     });
 
-    // Mock Storage class
+    // Mock Storage class with getFiles functionality
     Storage.mockImplementation(() => ({
       bucket: jest.fn().mockReturnValue({
+        getFiles: jest.fn().mockResolvedValue([[
+          { name: 'repo/main/20240315_120000/cobertura-coverage.xml' },
+          { name: 'repo/main/20240315_120001/cobertura-coverage.xml' },
+          { name: 'repo/feature-branch/20240315_120000/cobertura-coverage.xml' }
+        ]]),
         file: jest.fn().mockReturnValue({
           download: jest.fn().mockResolvedValue(['<coverage></coverage>'])
         })
@@ -45,7 +49,6 @@ describe('Coverage Action', () => {
   });
 
   test('should fail if not run on pull request', async () => {
-    // Remove PR-specific env variables
     delete process.env.GITHUB_BASE_REF;
     delete process.env.GITHUB_HEAD_REF;
 
@@ -56,79 +59,95 @@ describe('Coverage Action', () => {
     );
   });
 
-  test('should construct correct GCS paths', async () => {
+  test('should find latest timestamp folders', async () => {
     await run();
 
     expect(core.info).toHaveBeenCalledWith(
-      expect.stringContaining('repo/main/coverage.xml')
+      expect.stringContaining('Found latest base coverage at timestamp: 20240315_120001')
     );
     expect(core.info).toHaveBeenCalledWith(
-      expect.stringContaining('repo/feature-branch/coverage.xml')
+      expect.stringContaining('Found latest head coverage at timestamp: 20240315_120000')
     );
   });
 
   test('should attempt to download coverage files', async () => {
-    // Create a mock bucket instance
+    // Create mock functions
+    const mockDownload = jest.fn().mockResolvedValue(['<coverage></coverage>']);
     const mockFile = jest.fn().mockReturnValue({
-      download: jest.fn().mockResolvedValue(['<coverage></coverage>'])
+      download: mockDownload
     });
+    const mockGetFiles = jest.fn().mockResolvedValue([[
+      { name: 'repo/main/20240315_120000/cobertura-coverage.xml' },
+      { name: 'repo/feature-branch/20240315_120000/cobertura-coverage.xml' }
+    ]]);
     const mockBucket = jest.fn().mockReturnValue({
+      getFiles: mockGetFiles,
       file: mockFile
     });
 
     // Setup the Storage mock
-    const mockStorage = {
-      bucket: mockBucket
-    };
-    Storage.mockImplementation(() => mockStorage);
+    Storage.mockImplementation(() => ({
+      bucket: jest.fn().mockReturnValue({
+        getFiles: mockGetFiles,
+        file: mockFile
+      })
+    }));
 
     await run();
 
-    // Verify the bucket was accessed
-    expect(mockBucket).toHaveBeenCalled();
-    expect(mockFile).toHaveBeenCalledTimes(2);
+    // Verify the bucket operations
+    expect(mockGetFiles).toHaveBeenCalled();
+    expect(mockFile).toHaveBeenCalledTimes(2); // Should be called for both base and head
+    expect(mockDownload).toHaveBeenCalledTimes(2); // Should be called for both files
+    expect(core.info).toHaveBeenCalledWith(
+      expect.stringContaining('Downloading base coverage from:')
+    );
   });
 
   test('should handle GCS download errors', async () => {
-    // Mock a failed download
     const mockError = new Error('Download failed');
-    const mockFile = jest.fn().mockReturnValue({
-      download: jest.fn().mockRejectedValue(mockError)
-    });
-    const mockBucket = jest.fn().mockReturnValue({
-      file: mockFile
-    });
-
-    // Setup the Storage mock
-    const mockStorage = {
-      bucket: mockBucket
-    };
-    Storage.mockImplementation(() => mockStorage);
+    Storage.mockImplementation(() => ({
+      bucket: jest.fn().mockReturnValue({
+        getFiles: jest.fn().mockRejectedValue(mockError)
+      })
+    }));
 
     await run();
 
-    // Verify error was handled
     expect(core.setFailed).toHaveBeenCalledWith(
-      expect.stringContaining('Failed to download file')
+      expect.stringContaining('Failed to list files in')
     );
   });
 
   test('should handle invalid GCP credentials', async () => {
-    // Mock invalid JSON for credentials
     core.getInput.mockImplementation((name) => {
       const inputs = {
         gcp_credentials: 'invalid-json',
-        base_coverage_path: 'coverage.xml',
-        head_coverage_path: 'coverage.xml',
         min_coverage: '80',
-        github_token: 'fake-token'
+        github_token: 'fake-token',
+        gcp_bucket: 'test-bucket'
       };
       return inputs[name];
     });
 
     await run();
 
-    // Verify error was handled
-    expect(core.setFailed).toHaveBeenCalled();
+    expect(core.setFailed).toHaveBeenCalledWith(
+      expect.stringContaining('Invalid GCP credentials JSON')
+    );
+  });
+
+  test('should handle missing coverage reports', async () => {
+    Storage.mockImplementation(() => ({
+      bucket: jest.fn().mockReturnValue({
+        getFiles: jest.fn().mockResolvedValue([[]])
+      })
+    }));
+
+    await run();
+
+    expect(core.setFailed).toHaveBeenCalledWith(
+      expect.stringContaining('Could not find coverage reports')
+    );
   });
 }); 
