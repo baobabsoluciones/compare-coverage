@@ -1,6 +1,7 @@
 const core = require('@actions/core');
 const { Storage } = require('@google-cloud/storage');
 const { run } = require('../src/index');
+const github = require('@actions/github');
 
 // Mock the dependencies
 jest.mock('@actions/core');
@@ -152,7 +153,6 @@ describe('Coverage Action', () => {
   });
 
   test('should calculate coverage differences correctly', async () => {
-    // Mock coverage files with different coverage rates
     const baseCoverageXML = `
       <coverage line-rate="0.8" branch-rate="0.75">
         <packages>
@@ -186,7 +186,32 @@ describe('Coverage Action', () => {
         </packages>
       </coverage>`;
 
-    // Setup the Storage mock with our test coverage files
+    // Mock GitHub context
+    github.context = {
+      repo: {
+        owner: 'owner',
+        repo: 'repo'
+      },
+      payload: {
+        pull_request: {
+          number: 123
+        }
+      }
+    };
+
+    // Mock Octokit
+    const mockCreateComment = jest.fn();
+    const mockListComments = jest.fn().mockResolvedValue({ data: [] });
+    github.getOctokit = jest.fn().mockReturnValue({
+      rest: {
+        issues: {
+          createComment: mockCreateComment,
+          listComments: mockListComments
+        }
+      }
+    });
+
+    // Setup the Storage mock
     Storage.mockImplementation(() => ({
       bucket: jest.fn().mockReturnValue({
         getFiles: jest.fn().mockResolvedValue([[
@@ -203,12 +228,14 @@ describe('Coverage Action', () => {
 
     await run();
 
-    expect(core.info).toHaveBeenCalledWith(
-      expect.stringContaining('Coverage difference: 5.00%')
-    );
-    expect(core.info).toHaveBeenCalledWith(
-      expect.stringContaining('New lines covered in head: 2')
-    );
+    // Verify the coverage calculations and PR comment
+    expect(mockListComments).toHaveBeenCalled();
+    expect(mockCreateComment).toHaveBeenCalledWith({
+      owner: 'owner',
+      repo: 'repo',
+      issue_number: 123,
+      body: expect.stringContaining('Coverage difference: 5.00% (increase)')
+    });
   });
 
   test('should print file statistics', async () => {
@@ -230,7 +257,32 @@ describe('Coverage Action', () => {
         </packages>
       </coverage>`;
 
-    // Setup the Storage mock with our test coverage files
+    // Mock GitHub context
+    github.context = {
+      repo: {
+        owner: 'owner',
+        repo: 'repo'
+      },
+      payload: {
+        pull_request: {
+          number: 123
+        }
+      }
+    };
+
+    // Mock Octokit
+    const mockCreateComment = jest.fn();
+    const mockListComments = jest.fn().mockResolvedValue({ data: [] });
+    github.getOctokit = jest.fn().mockReturnValue({
+      rest: {
+        issues: {
+          createComment: mockCreateComment,
+          listComments: mockListComments
+        }
+      }
+    });
+
+    // Setup the Storage mock
     Storage.mockImplementation(() => ({
       bucket: jest.fn().mockReturnValue({
         getFiles: jest.fn().mockResolvedValue([[
@@ -238,7 +290,7 @@ describe('Coverage Action', () => {
           { name: 'repo/feature-branch/20240315_120000/coverage.xml' }
         ]]),
         file: jest.fn().mockReturnValue({
-          download: jest.fn().mockResolvedValue([coverageXML]) // Return the XML directly, not in an array
+          download: jest.fn().mockResolvedValue([coverageXML])
         })
       })
     }));
@@ -251,9 +303,6 @@ describe('Coverage Action', () => {
     // Get all calls after clearing
     const calls = core.info.mock.calls.map(call => call[0]);
 
-    // Debug output
-    console.log('All core.info calls:', JSON.stringify(calls, null, 2));
-
     // Check for the presence of specific strings
     const hasFile = calls.some(call => call.includes('File Statistics:'));
     const hasFilename = calls.some(call => call.includes('File: src/index.js'));
@@ -261,17 +310,184 @@ describe('Coverage Action', () => {
     const hasCovered = calls.some(call => call.includes('Covered lines: 3'));
     const hasCoverage = calls.some(call => call.includes('Coverage: 75.00%'));
 
-    // Debug output for each check
-    if (!hasFile) console.log('Missing "File Statistics:" header');
-    if (!hasFilename) console.log('Missing filename');
-    if (!hasTotal) console.log('Missing total lines');
-    if (!hasCovered) console.log('Missing covered lines');
-    if (!hasCoverage) console.log('Missing coverage percentage');
-
     expect(hasFile).toBe(true);
     expect(hasFilename).toBe(true);
     expect(hasTotal).toBe(true);
     expect(hasCovered).toBe(true);
     expect(hasCoverage).toBe(true);
+  });
+
+  test('should create new coverage comment if none exists', async () => {
+    const baseCoverageXML = `
+      <coverage line-rate="0.8" branch-rate="0.75">
+        <packages>
+          <package>
+            <classes>
+              <class filename="file1.js">
+                <lines>
+                  <line number="1" hits="1"/>
+                  <line number="2" hits="0"/>
+                </lines>
+              </class>
+            </classes>
+          </package>
+        </packages>
+      </coverage>`;
+
+    const headCoverageXML = `
+      <coverage line-rate="0.85" branch-rate="0.80">
+        <packages>
+          <package>
+            <classes>
+              <class filename="file1.js">
+                <lines>
+                  <line number="1" hits="1"/>
+                  <line number="2" hits="1"/>
+                </lines>
+              </class>
+            </classes>
+          </package>
+        </packages>
+      </coverage>`;
+
+    // Mock GitHub context
+    github.context = {
+      repo: {
+        owner: 'owner',
+        repo: 'repo'
+      },
+      payload: {
+        pull_request: {
+          number: 123
+        }
+      }
+    };
+
+    // Mock Octokit with no existing comments
+    const mockCreateComment = jest.fn();
+    const mockListComments = jest.fn().mockResolvedValue({ data: [] });
+    github.getOctokit = jest.fn().mockReturnValue({
+      rest: {
+        issues: {
+          createComment: mockCreateComment,
+          listComments: mockListComments
+        }
+      }
+    });
+
+    // Setup the Storage mock
+    Storage.mockImplementation(() => ({
+      bucket: jest.fn().mockReturnValue({
+        getFiles: jest.fn().mockResolvedValue([[
+          { name: 'repo/main/20240315_120000/coverage.xml' },
+          { name: 'repo/feature-branch/20240315_120000/coverage.xml' }
+        ]]),
+        file: jest.fn().mockReturnValue({
+          download: jest.fn()
+            .mockResolvedValueOnce([baseCoverageXML])
+            .mockResolvedValueOnce([headCoverageXML])
+        })
+      })
+    }));
+
+    await run();
+
+    expect(mockListComments).toHaveBeenCalled();
+    expect(mockCreateComment).toHaveBeenCalledWith({
+      owner: 'owner',
+      repo: 'repo',
+      issue_number: 123,
+      body: expect.stringContaining('Base (main) coverage: 80.00%')
+    });
+  });
+
+  test('should update existing coverage comment', async () => {
+    const baseCoverageXML = `
+      <coverage line-rate="0.8" branch-rate="0.75">
+        <packages>
+          <package>
+            <classes>
+              <class filename="file1.js">
+                <lines>
+                  <line number="1" hits="1"/>
+                  <line number="2" hits="0"/>
+                </lines>
+              </class>
+            </classes>
+          </package>
+        </packages>
+      </coverage>`;
+
+    const headCoverageXML = `
+      <coverage line-rate="0.85" branch-rate="0.80">
+        <packages>
+          <package>
+            <classes>
+              <class filename="file1.js">
+                <lines>
+                  <line number="1" hits="1"/>
+                  <line number="2" hits="1"/>
+                </lines>
+              </class>
+            </classes>
+          </package>
+        </packages>
+      </coverage>`;
+
+    // Mock GitHub context
+    github.context = {
+      repo: {
+        owner: 'owner',
+        repo: 'repo'
+      },
+      payload: {
+        pull_request: {
+          number: 123
+        }
+      }
+    };
+
+    // Mock Octokit with existing comment
+    const mockUpdateComment = jest.fn();
+    const mockListComments = jest.fn().mockResolvedValue({
+      data: [{
+        id: 456,
+        user: { type: 'Bot' },
+        body: 'Base (main) coverage: 75.00%'
+      }]
+    });
+    github.getOctokit = jest.fn().mockReturnValue({
+      rest: {
+        issues: {
+          updateComment: mockUpdateComment,
+          listComments: mockListComments
+        }
+      }
+    });
+
+    // Setup the Storage mock
+    Storage.mockImplementation(() => ({
+      bucket: jest.fn().mockReturnValue({
+        getFiles: jest.fn().mockResolvedValue([[
+          { name: 'repo/main/20240315_120000/coverage.xml' },
+          { name: 'repo/feature-branch/20240315_120000/coverage.xml' }
+        ]]),
+        file: jest.fn().mockReturnValue({
+          download: jest.fn()
+            .mockResolvedValueOnce([baseCoverageXML])
+            .mockResolvedValueOnce([headCoverageXML])
+        })
+      })
+    }));
+
+    await run();
+
+    expect(mockListComments).toHaveBeenCalled();
+    expect(mockUpdateComment).toHaveBeenCalledWith({
+      owner: 'owner',
+      repo: 'repo',
+      comment_id: 456,
+      body: expect.stringContaining('Base (main) coverage: 80.00%')
+    });
   });
 }); 

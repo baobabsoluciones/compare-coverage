@@ -99,3 +99,4 @@ jobs:
         with:
           gcp_credentials: ${{ secrets.GCP_CREDENTIALS }}
           gcp_bucket: ${{ secrets.GCP_COVERAGE_BUCKET }}
+          github_token: ${{ secrets.GH_TOKEN }}

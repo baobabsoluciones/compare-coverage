@@ -73,6 +73,53 @@ async function run() {
     // Calculate coverage difference (positive if head has more coverage)
     const coverageDiff = headMetrics.lineRate - baseMetrics.lineRate;
     const coverageDiffPercent = (coverageDiff * 100).toFixed(2);
+    const basePercent = (baseMetrics.lineRate * 100).toFixed(2);
+    const headPercent = (headMetrics.lineRate * 100).toFixed(2);
+
+    // Create PR comment message
+    const message = [
+      `Base (${baseBranch}) coverage: ${basePercent}%`,
+      `Head (${headBranch}) coverage: ${headPercent}%`,
+      `Coverage difference: ${coverageDiffPercent}% (${coverageDiff >= 0 ? 'increase' : 'decrease'})`
+    ].join('\n');
+
+    // Post or update comment to PR
+    const octokit = github.getOctokit(githubToken);
+    const context = github.context;
+
+    // Search for existing comment
+    const comments = await octokit.rest.issues.listComments({
+      owner: context.repo.owner,
+      repo: context.repo.repo,
+      issue_number: context.payload.pull_request.number,
+    });
+
+    const botComment = comments.data.find(comment =>
+      comment.user.type === 'Bot' &&
+      comment.body.includes('coverage:')
+    );
+
+    if (botComment) {
+      // Update existing comment
+      await octokit.rest.issues.updateComment({
+        owner: context.repo.owner,
+        repo: context.repo.repo,
+        comment_id: botComment.id,
+        body: message
+      });
+      core.info('\nUpdated existing PR comment with coverage information:');
+    } else {
+      // Create new comment
+      await octokit.rest.issues.createComment({
+        owner: context.repo.owner,
+        repo: context.repo.repo,
+        issue_number: context.payload.pull_request.number,
+        body: message
+      });
+      core.info('\nCreated new PR comment with coverage information:');
+    }
+
+    core.info(message);
 
     // Calculate new lines covered in head
     const newLinesCovered = calculateNewLinesCovered(baseCoverage, headCoverage);
