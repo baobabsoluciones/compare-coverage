@@ -70,6 +70,15 @@ jobs:
         id: repo-name
         run: echo "repo_name=${GITHUB_REPOSITORY#*/}" >> $GITHUB_OUTPUT
 
+      - name: Get branch name
+        id: branch-name
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            echo "branch=${{ github.head_ref }}" >> $GITHUB_OUTPUT
+          else
+            echo "branch=${{ github.ref_name }}" >> $GITHUB_OUTPUT
+          fi
+
       - name: Upload to GCE bucket - authenticate
         uses: 'google-github-actions/auth@v2'
         with:
@@ -80,7 +89,7 @@ jobs:
         uses: 'google-github-actions/upload-cloud-storage@v2'
         with:
           path: 'coverage/cobertura-coverage.xml'
-          destination: '${{ secrets.GCP_COVERAGE_BUCKET }}/${{ steps.repo-name.outputs.repo_name }}/${{ github.ref_name }}/${{ steps.timestamp.outputs.timestamp }}'
+          destination: '${{ secrets.GCP_COVERAGE_BUCKET }}/${{ steps.repo-name.outputs.repo_name }}/${{ steps.branch-name.outputs.branch }}/${{ steps.timestamp.outputs.timestamp }}'
 
   compare-coverage:
     runs-on: ubuntu-latest
