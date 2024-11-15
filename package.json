@@ -31,7 +31,11 @@
       "json-summary",
       "text",
       "lcov",
-      "cobertura"
+      "cobertura",
+      "clover"
+    ],
+    "coveragePathIgnorePatterns": [
+      "/node_modules/"
     ],
     "coverageThreshold": {
       "global": {
