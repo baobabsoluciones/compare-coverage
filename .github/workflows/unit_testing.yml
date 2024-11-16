@@ -80,9 +80,12 @@ jobs:
     needs: [unit-test]
     if: github.event_name == 'pull_request'
     permissions:
+      contents: read
       pull-requests: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Fetch all history for all branches
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
