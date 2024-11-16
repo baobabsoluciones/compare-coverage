@@ -7,10 +7,9 @@ async function run() {
   try {
     // Get inputs
     const gcpCredentials = core.getInput('gcp_credentials', { required: true });
-    const baseCoveragePath = core.getInput('base_coverage_path', { required: true });
-    const headCoveragePath = core.getInput('head_coverage_path', { required: true });
     const minCoverage = parseFloat(core.getInput('min_coverage')) || 80;
     const githubToken = core.getInput('github_token', { required: true });
+    const bucketName = core.getInput('gcp_bucket', { required: true });
 
     // Parse GCP credentials
     let credentials;
@@ -22,7 +21,6 @@ async function run() {
 
     // Get repository name from GitHub context
     const [owner, repo] = process.env.GITHUB_REPOSITORY.split('/');
-    const BUCKET_NAME = 'your-fixed-bucket-name';
 
     // Get base and head branch names from environment variables
     const baseBranch = process.env.GITHUB_BASE_REF;
@@ -32,26 +30,137 @@ async function run() {
       throw new Error('This action can only be run on pull request events');
     }
 
-    // Construct coverage paths using repository name and branch names
-    const repoPrefix = `${repo.toLowerCase()}`;
-    const actualBaseCoveragePath = `${repoPrefix}/${baseBranch}/${baseCoveragePath}`;
-    const actualHeadCoveragePath = `${repoPrefix}/${headBranch}/${headCoveragePath}`;
-
-    // Add the logging statements we're testing for
-    core.info(`Base branch: ${baseBranch}, coverage path: ${actualBaseCoveragePath}`);
-    core.info(`Head branch: ${headBranch}, coverage path: ${actualHeadCoveragePath}`);
-
     // Initialize GCP Storage
     const storage = new Storage({ credentials });
-    const bucket = storage.bucket(BUCKET_NAME);
+    const bucket = storage.bucket(bucketName);
+
+    // Construct base paths
+    const repoPrefix = `${repo.toLowerCase()}`;
+    const basePath = `${repoPrefix}/${baseBranch}`;
+    const headPath = `${repoPrefix}/${headBranch}`;
+
+    // Get the latest timestamp folders for both branches
+    const baseTimestamp = await getLatestTimestamp(bucket, basePath);
+    const headTimestamp = await getLatestTimestamp(bucket, headPath);
+
+    if (!baseTimestamp || !headTimestamp) {
+      throw new Error('Could not find coverage reports for one or both branches');
+    }
+
+    core.info(`Found latest base coverage at timestamp: ${baseTimestamp}`);
+    core.info(`Found latest head coverage at timestamp: ${headTimestamp}`);
+
+    // Construct full paths to coverage files
+    const baseCoveragePath = `${basePath}/${baseTimestamp}/coverage.xml`;
+    const headCoveragePath = `${headPath}/${headTimestamp}/coverage.xml`;
+
+    core.info(`Downloading base coverage from: ${baseCoveragePath}`);
+    core.info(`Downloading head coverage from: ${headCoveragePath}`);
 
     // Download coverage files
-    const baseCoverageContent = await downloadFile(bucket, actualBaseCoveragePath);
-    const headCoverageContent = await downloadFile(bucket, actualHeadCoveragePath);
+    const baseCoverageContent = await downloadFile(bucket, baseCoveragePath);
+    const headCoverageContent = await downloadFile(bucket, headCoveragePath);
 
-    // Rest of your code...
+    // Parse XML files
+    const parser = new xml2js.Parser();
+    const baseCoverage = await parser.parseStringPromise(baseCoverageContent);
+    const headCoverage = await parser.parseStringPromise(headCoverageContent);
+
+    // Calculate coverage metrics
+    const baseMetrics = getCoverageMetrics(baseCoverage);
+    const headMetrics = getCoverageMetrics(headCoverage);
+
+    // Calculate coverage difference (positive if head has more coverage)
+    const coverageDiff = headMetrics.lineRate - baseMetrics.lineRate;
+    const coverageDiffPercent = (coverageDiff * 100).toFixed(2);
+    const basePercent = (baseMetrics.lineRate * 100).toFixed(2);
+    const headPercent = (headMetrics.lineRate * 100).toFixed(2);
+
+    // Create PR comment message
+    const message = [
+      `Base (${baseBranch}) coverage: ${basePercent}%`,
+      `Head (${headBranch}) coverage: ${headPercent}%`,
+      `Coverage difference: ${coverageDiffPercent}% (${coverageDiff >= 0 ? 'increase' : 'decrease'})`
+    ].join('\n');
+
+    // Post or update comment to PR
+    const octokit = github.getOctokit(githubToken);
+    const context = github.context;
+
+    // Search for existing comment
+    const comments = await octokit.rest.issues.listComments({
+      owner: context.repo.owner,
+      repo: context.repo.repo,
+      issue_number: context.payload.pull_request.number,
+    });
+
+    const botComment = comments.data.find(comment =>
+      comment.user.type === 'Bot' &&
+      comment.body.includes('coverage:')
+    );
+
+    if (botComment) {
+      // Update existing comment
+      await octokit.rest.issues.updateComment({
+        owner: context.repo.owner,
+        repo: context.repo.repo,
+        comment_id: botComment.id,
+        body: message
+      });
+      core.info('\nUpdated existing PR comment with coverage information:');
+    } else {
+      // Create new comment
+      await octokit.rest.issues.createComment({
+        owner: context.repo.owner,
+        repo: context.repo.repo,
+        issue_number: context.payload.pull_request.number,
+        body: message
+      });
+      core.info('\nCreated new PR comment with coverage information:');
+    }
+
+    core.info(message);
+
+    // Calculate new lines covered in head
+    const newLinesCovered = calculateNewLinesCovered(baseCoverage, headCoverage);
+
+    // Log the results
+    core.info(`Coverage difference: ${coverageDiffPercent}% (${coverageDiff >= 0 ? 'increased' : 'decreased'})`);
+    core.info(`New lines covered in head: ${newLinesCovered}`);
+
+    // Print file statistics
+    core.info('\nFile coverage statistics:');
+    printFileStatistics(headCoverage);
+
   } catch (error) {
     core.setFailed(error.message);
+  }
+}
+
+async function getLatestTimestamp(bucket, prefix) {
+  try {
+    // List all files under the prefix
+    const [files] = await bucket.getFiles({ prefix: prefix + '/' });
+
+    // Extract unique timestamp folders
+    const timestamps = files
+      .map(file => {
+        const match = file.name.match(new RegExp(`${prefix}/(\\d{8}_\\d{6})/`));
+        return match ? match[1] : null;
+      })
+      .filter(Boolean) // Remove nulls
+      .filter((value, index, self) => self.indexOf(value) === index); // Remove duplicates
+
+    if (timestamps.length === 0) {
+      return null;
+    }
+
+    // Sort timestamps in descending order (newest first)
+    timestamps.sort((a, b) => b.localeCompare(a));
+
+    return timestamps[0];
+  } catch (error) {
+    throw new Error(`Failed to list files in ${prefix}: ${error.message}`);
   }
 }
 
@@ -63,9 +172,96 @@ async function downloadFile(bucket, filePath) {
   try {
     const file = bucket.file(filePath);
     const [content] = await file.download();
-    return content.toString();
+    // If content is a Buffer or array, convert to string
+    return content.toString ? content.toString() : content;
   } catch (error) {
     throw new Error(`Failed to download file ${filePath}: ${error.message}`);
+  }
+}
+
+function getCoverageMetrics(coverageData) {
+  const coverage = coverageData.coverage;
+  return {
+    lineRate: parseFloat(coverage.$['line-rate']),
+    branchRate: parseFloat(coverage.$['branch-rate']),
+    complexity: parseFloat(coverage.$.complexity || 0),
+    timestamp: coverage.$.timestamp
+  };
+}
+
+function calculateNewLinesCovered(baseCoverage, headCoverage) {
+  let newLinesCovered = 0;
+  const baseFiles = new Map();
+
+  // Index base files
+  baseCoverage.coverage.packages[0].package.forEach(pkg => {
+    pkg.classes[0].class.forEach(cls => {
+      baseFiles.set(cls.$.filename, getLineCoverage(cls.lines[0].line));
+    });
+  });
+
+  // Compare with head files
+  headCoverage.coverage.packages[0].package.forEach(pkg => {
+    pkg.classes[0].class.forEach(cls => {
+      const filename = cls.$.filename;
+      const headLines = getLineCoverage(cls.lines[0].line);
+      const baseLines = baseFiles.get(filename) || new Map();
+
+      // Check each line in head
+      headLines.forEach((hits, lineNum) => {
+        if (hits > 0 && (!baseLines.has(lineNum) || baseLines.get(lineNum) === 0)) {
+          newLinesCovered++;
+        }
+      });
+    });
+  });
+
+  return newLinesCovered;
+}
+
+function getLineCoverage(lines) {
+  const coverage = new Map();
+  lines.forEach(line => {
+    coverage.set(parseInt(line.$.number), parseInt(line.$.hits));
+  });
+  return coverage;
+}
+
+function printFileStatistics(coverage) {
+  try {
+    if (!coverage.coverage.packages || !coverage.coverage.packages[0].package) {
+      core.warning('No packages found in coverage data');
+      return;
+    }
+
+    coverage.coverage.packages[0].package.forEach(pkg => {
+      if (!pkg.classes || !pkg.classes[0] || !pkg.classes[0].class) {
+        core.warning('No classes found in package');
+        return;
+      }
+
+      pkg.classes[0].class.forEach(cls => {
+        if (!cls.$ || !cls.lines || !cls.lines[0] || !cls.lines[0].line) {
+          core.warning('Invalid class structure');
+          return;
+        }
+
+        const filename = cls.$.filename;
+        const lines = cls.lines[0].line;
+        const totalLines = lines.length;
+        const coveredLines = lines.filter(line => parseInt(line.$.hits) > 0).length;
+        const coveragePercent = ((coveredLines / totalLines) * 100).toFixed(2);
+
+        core.info('\nFile Statistics:');
+        core.info(`File: ${filename}`);
+        core.info(`Total lines: ${totalLines}`);
+        core.info(`Covered lines: ${coveredLines}`);
+        core.info(`Coverage: ${coveragePercent}%`);
+        core.info('---');
+      });
+    });
+  } catch (error) {
+    core.warning(`Error printing file statistics: ${error.message}`);
   }
 }
 
