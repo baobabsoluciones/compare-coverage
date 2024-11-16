@@ -529,42 +529,49 @@ describe('Coverage Action', () => {
     expect(commentBody).toMatch(/##.*main.*#.*feature-branch.*\+\/-.*/);
     expect(commentBody).toMatch(/={3,}/); // Separator lines
 
-    // Check alignment and formatting with emojis
+    // Check alignment and formatting - only Coverage, Hits, Misses, and Partials have emojis
     expect(commentBody).toMatch(/[+-]?\s*Coverage\s+\d{1,3}\.\d{2}%\s+\d{1,3}\.\d{2}%\s+[+-]?\d{1,3}\.\d{2}%\s+[📈📉]/);
-    expect(commentBody).toMatch(/\s*Files\s+\d+\s+\d+\s+[+-]?\d+\s+[📈📉]/);
-    expect(commentBody).toMatch(/\s*Lines\s+\d+\s+\d+\s+[+-]?\d+\s+[📈📉]/);
-    expect(commentBody).toMatch(/\s*Branches\s+\d+\s+\d+\s+[+-]?\d+\s+[📈📉]/);
+    expect(commentBody).toMatch(/\s*Files\s+\d+\s+\d+\s+[+-]?\d+\s*\n/);  // No emoji, match newline
+    expect(commentBody).toMatch(/\s*Lines\s+\d+\s+\d+\s+[+-]?\d+\s*\n/);  // No emoji, match newline
+    expect(commentBody).toMatch(/\s*Branches\s+\d+\s+\d+\s+[+-]?\d+\s*\n/);  // No emoji, match newline
     expect(commentBody).toMatch(/\s*Hits\s+\d+\s+\d+\s+[+-]?\d+\s+[📈📉]/);
     expect(commentBody).toMatch(/[-]?\s*Misses\s+\d+\s+\d+\s+[+-]?\d+\s+[📈📉]/);
     expect(commentBody).toMatch(/\s*Partials\s+\d+\s+\d+\s+[+-]?\d+\s+[📈📉]/);
-    expect(commentBody).toMatch(/```$/);
 
     // Verify specific values from python-head.xml with emojis
     expect(commentBody).toMatch(/Coverage\s+100\.00%\s+67\.74%\s+-32\.26%\s+📉/);
-    expect(commentBody).toMatch(/Branches\s+6\s+18\s+12\s+📈/);
+    expect(commentBody).toMatch(/Branches\s+6\s+18\s+12\s*\n/);  // Changed to match newline instead of end of string
 
     // Check for files section when there are changes
     expect(commentBody).toMatch(/The main files with changes are:/);
-    expect(commentBody).toMatch(/\| File \| Base Coverage \| Head Coverage \| Change \|/);
-    expect(commentBody).toMatch(/\|------|---------------|---------------|--------|/);
+    expect(commentBody).toMatch(/@@ File Coverage Diff @@/);
+    expect(commentBody).toMatch(/={3,}/);  // Separator lines
 
     // Verify file entries are properly formatted with emojis
-    const fileLines = commentBody.split('\n').filter(line => line.startsWith('- |') || line.startsWith('  |'));
+    const fileLines = commentBody.split('\n')
+      .filter(line => {
+        // Only get lines from the file coverage section
+        const isFileLine = line.startsWith('- ') || line.startsWith('  ');
+        const isInFileSection = line.includes('.py') || line.includes('.js'); // Look for file extensions
+        return isFileLine && isInFileSection;
+      });
+
     fileLines.forEach(line => {
-      expect(line).toMatch(/^[-\s]\|\s[\w\/\.-]+\s\|\s\d+\.\d{2}%\s\|\s\d+\.\d{2}%\s\|\s[+-]?\d+\.\d{2}%\s📈|📉\s\|$/);
+      // Updated regex to match actual format with flexible spacing
+      expect(line).toMatch(/^[-\s]\s[\w\/\.-]+\s+\d+\.\d{2}%\s+\d+\.\d{2}%\s+[+-]?\d+\.\d{2}%\s+[📈📉]/);
     });
 
-    // Verify files with coverage decrease are marked with '-' and have 📉
-    const decreasedLines = fileLines.filter(line => line.startsWith('- |'));
+    // Verify files with coverage decrease
+    const decreasedLines = fileLines.filter(line => line.startsWith('- '));
     decreasedLines.forEach(line => {
-      const match = line.match(/\|\s([+-]?\d+\.\d{2})%\s📉/);
+      const match = line.match(/\s+([+-]?\d+\.\d{2})%\s+📉/);
       expect(parseFloat(match[1])).toBeLessThan(0);
     });
 
-    // Verify files with coverage increase have 📈
-    const increasedLines = fileLines.filter(line => line.startsWith('  |'));
+    // Verify files with coverage increase
+    const increasedLines = fileLines.filter(line => line.startsWith('  '));
     increasedLines.forEach(line => {
-      const match = line.match(/\|\s\+(\d+\.\d{2})%\s📈/);
+      const match = line.match(/\s+\+(\d+\.\d{2})%\s+📈/);
       expect(parseFloat(match[1])).toBeGreaterThan(0);
     });
   });

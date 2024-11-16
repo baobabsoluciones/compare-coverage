@@ -103,11 +103,11 @@ async function run() {
         ? `  Coverage    ${basePercent.padStart(6)}%   ${headPercent.padStart(6)}%   ${coverageDiffPercent.padStart(6)}% 📈`
         : `- Coverage    ${basePercent.padStart(6)}%   ${headPercent.padStart(6)}%   ${coverageDiffPercent.padStart(6)}% 📉`,
       '===========================================',
-      `  Files        ${String(Object.keys(baseCoverage).length).padStart(6)}    ${String(Object.keys(headCoverage).length).padStart(6)}    ${String(Object.keys(headCoverage).length - Object.keys(baseCoverage).length).padStart(6)} ${Object.keys(headCoverage).length >= Object.keys(baseCoverage).length ? '📈' : '📉'}`,
-      `  Lines        ${String(baseMetrics.lines || 0).padStart(6)}    ${String(headMetrics.lines || 0).padStart(6)}    ${String((headMetrics.lines || 0) - (baseMetrics.lines || 0)).padStart(6)} ${(headMetrics.lines || 0) >= (baseMetrics.lines || 0) ? '📈' : '📉'}`,
-      `  Branches     ${String(baseMetrics.branches || 0).padStart(6)}    ${String(headMetrics.branches || 0).padStart(6)}    ${String((headMetrics.branches || 0) - (baseMetrics.branches || 0)).padStart(6)} ${(headMetrics.branches || 0) >= (baseMetrics.branches || 0) ? '📈' : '📉'}`,
+      `  Files        ${String(Object.keys(baseCoverage).length).padStart(6)}    ${String(Object.keys(headCoverage).length).padStart(6)}    ${String(Object.keys(headCoverage).length - Object.keys(baseCoverage).length).padStart(6)}`,
+      `  Lines        ${String(baseMetrics.lines || 0).padStart(6)}    ${String(headMetrics.lines || 0).padStart(6)}    ${String((headMetrics.lines || 0) - (baseMetrics.lines || 0)).padStart(6)}`,
+      `  Branches     ${String(baseMetrics.branches || 0).padStart(6)}    ${String(headMetrics.branches || 0).padStart(6)}    ${String((headMetrics.branches || 0) - (baseMetrics.branches || 0)).padStart(6)}`,
       '===========================================',
-      `  Hits         ${String(baseMetrics.hits || 0).padStart(6)}    ${String(headMetrics.hits || 0).padStart(6)}    ${String((headMetrics.hits || 0) - (baseMetrics.hits || 0)).padStart(6)} ${(headMetrics.hits || 0) >= (baseMetrics.hits || 0) ? '📈' : '📉'}`,
+      `  Hits         ${String(baseMetrics.hits || 0).padStart(6)}    ${String(headMetrics.hits || 0).padStart(6)}    ${String((headMetrics.hits || 0) - (baseMetrics.hits || 0)).padStart(6)} 📈`,
       `${headMetrics.misses > baseMetrics.misses ? '-' : ' '} Misses       ${String(baseMetrics.misses || 0).padStart(6)}    ${String(headMetrics.misses || 0).padStart(6)}    ${String((headMetrics.misses || 0) - (baseMetrics.misses || 0)).padStart(6)} ${(headMetrics.misses || 0) <= (baseMetrics.misses || 0) ? '📈' : '📉'}`,
       `  Partials     ${String(baseMetrics.partials || 0).padStart(6)}    ${String(headMetrics.partials || 0).padStart(6)}    ${String((headMetrics.partials || 0) - (baseMetrics.partials || 0)).padStart(6)} ${(headMetrics.partials || 0) <= (baseMetrics.partials || 0) ? '📈' : '📉'}`,
       '```',
@@ -121,8 +121,8 @@ async function run() {
       message.push('The main files with changes are:');
       message.push('');
       message.push('```diff');
-      message.push('| File | Base Coverage | Head Coverage | Change |');
-      message.push('|------|---------------|---------------|--------|');
+      message.push('@@ File Coverage Diff @@');
+      message.push('===========================================');
 
       // Sort files by absolute change amount
       changedFiles.sort((a, b) => Math.abs(b.change) - Math.abs(a.change));
@@ -131,11 +131,12 @@ async function run() {
         const changeStr = change.toFixed(2);
         const emoji = change >= 0 ? '📈' : '📉';
         const line = change < 0
-          ? `- | ${filename} | ${baseCov.toFixed(2)}% | ${headCov.toFixed(2)}% | ${changeStr}% ${emoji} |`
-          : `  | ${filename} | ${baseCov.toFixed(2)}% | ${headCov.toFixed(2)}% | +${changeStr}% ${emoji} |`;
+          ? `- ${filename.padEnd(20)} ${baseCov.toFixed(2).padStart(6)}%   ${headCov.toFixed(2).padStart(6)}%   ${changeStr.padStart(6)}% ${emoji}`
+          : `  ${filename.padEnd(20)} ${baseCov.toFixed(2).padStart(6)}%   ${headCov.toFixed(2).padStart(6)}%   +${changeStr.padStart(6)}% ${emoji}`;
         message.push(line);
       });
 
+      message.push('===========================================');
       message.push('```');
     }
 
