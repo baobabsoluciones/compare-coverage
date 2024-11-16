@@ -422,7 +422,7 @@ describe('Coverage Action', () => {
       data: [{
         id: 456,
         user: { type: 'Bot' },
-        body: 'Base (main) coverage: 75.00%'
+        body: '<!-- Coverage Report Bot -->\n```diff\n@@ Coverage Diff @@'
       }]
     });
     github.getOctokit = jest.fn().mockReturnValue({
@@ -519,12 +519,17 @@ describe('Coverage Action', () => {
     // Verify the comment format
     const commentBody = mockCreateComment.mock.calls[0][0].body;
 
+    // Check for bot identifier
+    expect(commentBody).toMatch(/<!-- Coverage Report Bot -->/);
+
     // Verify all required sections are present
     expect(commentBody).toMatch(/```diff/);
     expect(commentBody).toMatch(/@@ Coverage Diff @@/);
     expect(commentBody).toMatch(/##.*main.*#.*feature-branch.*\+\/-.*/);
     expect(commentBody).toMatch(/={3,}/); // Separator lines
-    expect(commentBody).toMatch(/[+-]?\s*Coverage\s+\d+\.\d+%\s+\d+\.\d+%\s+[+-]?\d+\.\d+%/);
+
+    // Check alignment and formatting
+    expect(commentBody).toMatch(/[+-]?\s*Coverage\s+\d{1,3}\.\d{2}%\s+\d{1,3}\.\d{2}%\s+[+-]?\d{1,3}\.\d{2}%/);
     expect(commentBody).toMatch(/\s*Files\s+\d+\s+\d+\s+[+-]?\d+/);
     expect(commentBody).toMatch(/\s*Lines\s+\d+\s+\d+\s+[+-]?\d+/);
     expect(commentBody).toMatch(/\s*Branches\s+\d+\s+\d+\s+[+-]?\d+/);
@@ -533,9 +538,9 @@ describe('Coverage Action', () => {
     expect(commentBody).toMatch(/\s*Partials\s+\d+\s+\d+\s+[+-]?\d+/);
     expect(commentBody).toMatch(/```$/);
 
-    // Verify specific values from python-head.xml
-    expect(commentBody).toMatch(/Coverage.*100\.00%.*67\.74%.*-32\.26%/);
-    expect(commentBody).toMatch(/Branches.*6.*18.*12/);
+    // Verify specific values and alignment from python-head.xml
+    expect(commentBody).toMatch(/Coverage\s+100\.00%\s+67\.74%\s+-32\.26%/);
+    expect(commentBody).toMatch(/Branches\s+6\s+18\s+12/);
   });
 
   test('should handle Python coverage format', async () => {
@@ -618,5 +623,111 @@ describe('Coverage Action', () => {
       issue_number: 123,
       body: expect.stringMatching(/Coverage\s+100\.00%\s+67\.74%\s+-32\.26%/)
     });
+  });
+
+  test('should find and update bot comment correctly', async () => {
+    // Add test coverage data
+    const baseCoverageXML = `
+      <coverage line-rate="0.8" branch-rate="0.75">
+        <packages>
+          <package>
+            <classes>
+              <class filename="file1.js">
+                <lines>
+                  <line number="1" hits="1"/>
+                  <line number="2" hits="0"/>
+                </lines>
+              </class>
+            </classes>
+          </package>
+        </packages>
+      </coverage>`;
+
+    const headCoverageXML = `
+      <coverage line-rate="0.85" branch-rate="0.80">
+        <packages>
+          <package>
+            <classes>
+              <class filename="file1.js">
+                <lines>
+                  <line number="1" hits="1"/>
+                  <line number="2" hits="1"/>
+                </lines>
+              </class>
+            </classes>
+          </package>
+        </packages>
+      </coverage>`;
+
+    // Mock GitHub context
+    github.context = {
+      repo: {
+        owner: 'owner',
+        repo: 'repo'
+      },
+      payload: {
+        pull_request: {
+          number: 123
+        }
+      }
+    };
+
+    // Mock Octokit with multiple comments including bot comment
+    const mockUpdateComment = jest.fn();
+    const mockListComments = jest.fn().mockResolvedValue({
+      data: [
+        {
+          id: 455,
+          user: { type: 'User' },
+          body: 'Some other comment'
+        },
+        {
+          id: 456,
+          user: { type: 'Bot' },
+          body: '<!-- Coverage Report Bot -->\n```diff\n@@ Coverage Diff @@'
+        },
+        {
+          id: 457,
+          user: { type: 'Bot' },
+          body: 'Some other bot comment'
+        }
+      ]
+    });
+    github.getOctokit = jest.fn().mockReturnValue({
+      rest: {
+        issues: {
+          updateComment: mockUpdateComment,
+          listComments: mockListComments
+        }
+      }
+    });
+
+    // Setup the Storage mock
+    Storage.mockImplementation(() => ({
+      bucket: jest.fn().mockReturnValue({
+        getFiles: jest.fn().mockResolvedValue([[
+          { name: 'repo/main/20240315_120000/coverage.xml' },
+          { name: 'repo/feature-branch/20240315_120000/coverage.xml' }
+        ]]),
+        file: jest.fn().mockReturnValue({
+          download: jest.fn()
+            .mockResolvedValueOnce([baseCoverageXML])
+            .mockResolvedValueOnce([headCoverageXML])
+        })
+      })
+    }));
+
+    await run();
+
+    // Verify the bot comment was found and updated
+    expect(mockListComments).toHaveBeenCalled();
+    expect(mockUpdateComment).toHaveBeenCalledWith(
+      expect.objectContaining({
+        owner: 'owner',
+        repo: 'repo',
+        comment_id: 456,
+        body: expect.stringContaining('<!-- Coverage Report Bot -->')
+      })
+    );
   });
 }); 

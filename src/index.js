@@ -92,6 +92,7 @@ async function run() {
 
     // Create PR comment message with diff-style format
     const message = [
+      '<!-- Coverage Report Bot -->',
       '```diff',
       '@@ Coverage Diff @@',
       `## ${baseBranch}    #${headBranch}    +/-  ##`,
@@ -124,7 +125,7 @@ async function run() {
 
     const botComment = comments.data.find(comment =>
       comment.user.type === 'Bot' &&
-      comment.body.includes('coverage:')
+      comment.body.includes('<!-- Coverage Report Bot -->')
     );
 
     if (botComment) {
