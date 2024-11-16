@@ -67506,6 +67506,11 @@ module.exports = Queue;
 /***/ 5105:
 /***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
 
+/**
+ * GitHub Action for comparing code coverage between branches
+ * Supports Java, JavaScript, and Python coverage formats
+ * Version: 0.0.5
+ */
 const core = __nccwpck_require__(7484);
 const github = __nccwpck_require__(3228);
 const { Storage } = __nccwpck_require__(8525);
