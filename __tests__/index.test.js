@@ -544,6 +544,24 @@ describe('Coverage Action', () => {
 
     // Add this check after the bot identifier check:
     expect(commentBody).toMatch(/The overall coverage statistics of the PR are:/);
+
+    // Check for files section when there are changes
+    expect(commentBody).toMatch(/The main files with changes are:/);
+    expect(commentBody).toMatch(/\| File \| Base Coverage \| Head Coverage \| Change \|/);
+    expect(commentBody).toMatch(/\|------|---------------|---------------|--------|/);
+
+    // Verify file entries are properly formatted
+    const fileLines = commentBody.split('\n').filter(line => line.startsWith('- |') || line.startsWith('  |'));
+    fileLines.forEach(line => {
+      expect(line).toMatch(/^[-\s]\s\|\s[\w\/\.-]+\s\|\s\d+\.\d{2}%\s\|\s\d+\.\d{2}%\s\|\s[+-]?\d+\.\d{2}%\s\|$/);
+    });
+
+    // Verify files with coverage decrease are marked with '-'
+    const decreasedLines = fileLines.filter(line => line.startsWith('- |'));
+    decreasedLines.forEach(line => {
+      const match = line.match(/\|\s([+-]?\d+\.\d{2})%\s\|$/);
+      expect(parseFloat(match[1])).toBeLessThan(0);
+    });
   });
 
   test('should handle Python coverage format', async () => {

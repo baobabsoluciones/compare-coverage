@@ -94,25 +94,51 @@ async function run() {
     const message = [
       '<!-- Coverage Report Bot -->',
       'The overall coverage statistics of the PR are:',
-      '',  // Add empty line for better readability
+      '',
       '```diff',
       '@@ Coverage Diff @@',
       `## ${baseBranch}    #${headBranch}    +/-  ##`,
-      '===========================================',  // Extended separator
+      '===========================================',
       coverageDiff >= 0
         ? `  Coverage    ${basePercent.padStart(6)}%   ${headPercent.padStart(6)}%   ${coverageDiffPercent.padStart(6)}%`
         : `- Coverage    ${basePercent.padStart(6)}%   ${headPercent.padStart(6)}%   ${coverageDiffPercent.padStart(6)}%`,
-      '===========================================',  // Extended separator
+      '===========================================',
       `  Files        ${String(Object.keys(baseCoverage).length).padStart(6)}    ${String(Object.keys(headCoverage).length).padStart(6)}    ${String(Object.keys(headCoverage).length - Object.keys(baseCoverage).length).padStart(6)}`,
       `  Lines        ${String(baseMetrics.lines || 0).padStart(6)}    ${String(headMetrics.lines || 0).padStart(6)}    ${String((headMetrics.lines || 0) - (baseMetrics.lines || 0)).padStart(6)}`,
       `  Branches     ${String(baseMetrics.branches || 0).padStart(6)}    ${String(headMetrics.branches || 0).padStart(6)}    ${String((headMetrics.branches || 0) - (baseMetrics.branches || 0)).padStart(6)}`,
-      '===========================================',  // Extended separator
+      '===========================================',
       `  Hits         ${String(baseMetrics.hits || 0).padStart(6)}    ${String(headMetrics.hits || 0).padStart(6)}    ${String((headMetrics.hits || 0) - (baseMetrics.hits || 0)).padStart(6)}`,
-      // Only add minus sign if misses increased
       `${headMetrics.misses > baseMetrics.misses ? '-' : ' '} Misses       ${String(baseMetrics.misses || 0).padStart(6)}    ${String(headMetrics.misses || 0).padStart(6)}    ${String((headMetrics.misses || 0) - (baseMetrics.misses || 0)).padStart(6)}`,
       `  Partials     ${String(baseMetrics.partials || 0).padStart(6)}    ${String(headMetrics.partials || 0).padStart(6)}    ${String((headMetrics.partials || 0) - (baseMetrics.partials || 0)).padStart(6)}`,
-      '```'
-    ].join('\n');
+      '```',
+      ''
+    ];
+
+    // Get files with coverage changes
+    const changedFiles = getFilesWithCoverageChanges(baseCoverage, headCoverage);
+
+    if (changedFiles.length > 0) {
+      message.push('The main files with changes are:');
+      message.push('');
+      message.push('```diff');
+      message.push('| File | Base Coverage | Head Coverage | Change |');
+      message.push('|------|---------------|---------------|--------|');
+
+      // Sort files by absolute change amount
+      changedFiles.sort((a, b) => Math.abs(b.change) - Math.abs(a.change));
+
+      changedFiles.forEach(({ filename, baseCov, headCov, change }) => {
+        const changeStr = change.toFixed(2);
+        const line = change < 0
+          ? `- | ${filename} | ${baseCov.toFixed(2)}% | ${headCov.toFixed(2)}% | ${changeStr}% |`
+          : `  | ${filename} | ${baseCov.toFixed(2)}% | ${headCov.toFixed(2)}% | +${changeStr}% |`;
+        message.push(line);
+      });
+
+      message.push('```');
+    }
+
+    const finalMessage = message.join('\n');
 
     // Post or update comment to PR
     const octokit = github.getOctokit(githubToken);
@@ -136,7 +162,7 @@ async function run() {
         owner: context.repo.owner,
         repo: context.repo.repo,
         comment_id: botComment.id,
-        body: message
+        body: finalMessage
       });
       core.info('\nUpdated existing PR comment with coverage information:');
     } else {
@@ -145,12 +171,12 @@ async function run() {
         owner: context.repo.owner,
         repo: context.repo.repo,
         issue_number: context.payload.pull_request.number,
-        body: message
+        body: finalMessage
       });
       core.info('\nCreated new PR comment with coverage information:');
     }
 
-    core.info(message);
+    core.info(finalMessage);
 
     // Log the results
     core.info(`Coverage difference: ${coverageDiffPercent}% (${coverageDiff >= 0 ? 'increased' : 'decreased'})`);
@@ -346,6 +372,79 @@ function printFileStatistics(coverage) {
   } catch (error) {
     core.warning(`Error printing file statistics: ${error.message}`);
   }
+}
+
+function getFilesWithCoverageChanges(baseCoverage, headCoverage) {
+  const changedFiles = [];
+  const baseFiles = new Map();
+  const headFiles = new Map();
+
+  // Helper to calculate file coverage
+  const calculateFileCoverage = (cls) => {
+    if (!cls.lines?.[0]?.line) return null;
+    const lines = cls.lines[0].line;
+    const covered = lines.filter(line => parseInt(line.$.hits) > 0).length;
+    return (covered / lines.length) * 100;
+  };
+
+  // Process base coverage
+  if (baseCoverage.coverage.classes) {
+    // Python format
+    baseCoverage.coverage.classes[0].class.forEach(cls => {
+      const coverage = calculateFileCoverage(cls);
+      if (coverage !== null) {
+        baseFiles.set(cls.$.filename, coverage);
+      }
+    });
+  } else if (baseCoverage.coverage.packages) {
+    // Java/JS format
+    baseCoverage.coverage.packages[0].package.forEach(pkg => {
+      pkg.classes?.[0]?.class.forEach(cls => {
+        const coverage = calculateFileCoverage(cls);
+        if (coverage !== null) {
+          baseFiles.set(cls.$.filename, coverage);
+        }
+      });
+    });
+  }
+
+  // Process head coverage similarly
+  if (headCoverage.coverage.classes) {
+    headCoverage.coverage.classes[0].class.forEach(cls => {
+      const coverage = calculateFileCoverage(cls);
+      if (coverage !== null) {
+        headFiles.set(cls.$.filename, coverage);
+      }
+    });
+  } else if (headCoverage.coverage.packages) {
+    headCoverage.coverage.packages[0].package.forEach(pkg => {
+      pkg.classes?.[0]?.class.forEach(cls => {
+        const coverage = calculateFileCoverage(cls);
+        if (coverage !== null) {
+          headFiles.set(cls.$.filename, coverage);
+        }
+      });
+    });
+  }
+
+  // Compare coverages
+  const allFiles = new Set([...baseFiles.keys(), ...headFiles.keys()]);
+  allFiles.forEach(filename => {
+    const baseCov = baseFiles.get(filename) || 0;
+    const headCov = headFiles.get(filename) || 0;
+    const change = headCov - baseCov;
+
+    if (Math.abs(change) > 0.01) { // Only include if change is significant
+      changedFiles.push({
+        filename,
+        baseCov,
+        headCov,
+        change
+      });
+    }
+  });
+
+  return changedFiles;
 }
 
 module.exports = { run };
