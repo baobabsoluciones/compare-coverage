@@ -67708,24 +67708,36 @@ function calculateNewLinesCovered(baseCoverage, headCoverage) {
   let newLinesCovered = 0;
   const baseFiles = new Map();
 
-  // Index base files - handle both Java/JS and Python coverage formats
-  const basePackages = baseCoverage.coverage.packages?.[0]?.package ||
-    [{ classes: [{ class: getClassesFromPackages(baseCoverage) }] }];
+  // Handle Python coverage format where classes are directly under coverage
+  const getClasses = (coverage) => {
+    if (coverage.coverage.classes) {
+      return coverage.coverage.classes[0].class;
+    }
+    // Handle Java/JS format
+    if (coverage.coverage.packages) {
+      const classes = [];
+      coverage.coverage.packages[0].package.forEach(pkg => {
+        if (pkg.classes?.[0]?.class) {
+          classes.push(...pkg.classes[0].class);
+        }
+      });
+      return classes;
+    }
+    return [];
+  };
 
-  basePackages.forEach(pkg => {
-    const classes = pkg.classes?.[0]?.class || [];
-    classes.forEach(cls => {
+  // Index base files
+  const baseClasses = getClasses(baseCoverage);
+  baseClasses.forEach(cls => {
+    if (cls.lines?.[0]?.line) {
       baseFiles.set(cls.$.filename, getLineCoverage(cls.lines[0].line));
-    });
+    }
   });
 
   // Compare with head files
-  const headPackages = headCoverage.coverage.packages?.[0]?.package ||
-    [{ classes: [{ class: getClassesFromPackages(headCoverage) }] }];
-
-  headPackages.forEach(pkg => {
-    const classes = pkg.classes?.[0]?.class || [];
-    classes.forEach(cls => {
+  const headClasses = getClasses(headCoverage);
+  headClasses.forEach(cls => {
+    if (cls.lines?.[0]?.line) {
       const filename = cls.$.filename;
       const headLines = getLineCoverage(cls.lines[0].line);
       const baseLines = baseFiles.get(filename) || new Map();
@@ -67736,26 +67748,10 @@ function calculateNewLinesCovered(baseCoverage, headCoverage) {
           newLinesCovered++;
         }
       });
-    });
+    }
   });
 
   return newLinesCovered;
-}
-
-function getClassesFromPackages(coverage) {
-  // Handle Python coverage format where classes are directly under coverage
-  if (!coverage.coverage.packages && coverage.coverage.classes) {
-    return coverage.coverage.classes[0].class;
-  }
-
-  // Handle case where there are no classes
-  if (!coverage.coverage.packages && !coverage.coverage.classes) {
-    core.warning('No coverage data found in expected format');
-    return [];
-  }
-
-  // For Java/JS format, return empty array if packages exist (will be handled by main logic)
-  return [];
 }
 
 function getLineCoverage(lines) {
@@ -67768,38 +67764,39 @@ function getLineCoverage(lines) {
 
 function printFileStatistics(coverage) {
   try {
-    let classes = [];
+    let totalLines = 0;
+    let coveredLines = 0;
 
-    if (coverage.coverage.packages) {
+    // Handle Python coverage format
+    if (coverage.coverage.classes) {
+      coverage.coverage.classes[0].class.forEach(cls => {
+        if (cls.lines?.[0]?.line) {
+          totalLines += cls.lines[0].line.length;
+          coveredLines += cls.lines[0].line.filter(line => parseInt(line.$.hits) > 0).length;
+        }
+      });
+    }
+    // Handle Java/JS format
+    else if (coverage.coverage.packages) {
       coverage.coverage.packages[0].package.forEach(pkg => {
-        if (pkg.classes && pkg.classes[0] && pkg.classes[0].class) {
-          const validClasses = pkg.classes[0].class.filter(cls => {
-            const hasLines = cls.lines &&
-              cls.lines[0] &&
-              cls.lines[0].line &&
-              Array.isArray(cls.lines[0].line) &&
-              cls.lines[0].line.length > 0;
-            return hasLines;
+        if (pkg.classes?.[0]?.class) {
+          pkg.classes[0].class.forEach(cls => {
+            if (cls.lines?.[0]?.line) {
+              totalLines += cls.lines[0].line.length;
+              coveredLines += cls.lines[0].line.filter(line => parseInt(line.$.hits) > 0).length;
+            }
           });
-          classes = classes.concat(validClasses);
         }
       });
     }
 
-    classes.forEach(cls => {
-      const filename = cls.$.filename;
-      const lines = cls.lines[0].line;
-      const totalLines = lines.length;
-      const coveredLines = lines.filter(line => parseInt(line.$.hits) > 0).length;
-      const coveragePercent = ((coveredLines / totalLines) * 100).toFixed(2);
+    const coveragePercent = ((coveredLines / totalLines) * 100).toFixed(2);
 
-      core.info('\nFile Statistics:');
-      core.info(`File: ${filename}`);
-      core.info(`Total lines: ${totalLines}`);
-      core.info(`Covered lines: ${coveredLines}`);
-      core.info(`Coverage: ${coveragePercent}%`);
-      core.info('---');
-    });
+    core.info('\nOverall Statistics:');
+    core.info(`Total lines: ${totalLines}`);
+    core.info(`Covered lines: ${coveredLines}`);
+    core.info(`Coverage: ${coveragePercent}%`);
+    core.info('---');
   } catch (error) {
     core.warning(`Error printing file statistics: ${error.message}`);
   }
