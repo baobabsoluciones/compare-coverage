@@ -1,6 +1,6 @@
 name: 'Coverage Comparison Action'
 description: 'Compare code coverage between base and head branches using coverage reports from Google Cloud Storage'
-author: 'Your Name'
+author: 'baobab soluciones'
 
 inputs:
   gcp_credentials:
