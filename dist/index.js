@@ -67509,7 +67509,7 @@ module.exports = Queue;
 /**
  * GitHub Action for comparing code coverage between branches
  * Supports Java, JavaScript, and Python coverage formats
- * Version: 0.0.5
+ * Version: 0.0.6
  */
 const core = __nccwpck_require__(7484);
 const github = __nccwpck_require__(3228);
