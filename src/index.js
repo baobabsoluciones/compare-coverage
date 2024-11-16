@@ -87,11 +87,28 @@ async function run() {
     const basePercent = (baseMetrics.lineRate * 100).toFixed(2);
     const headPercent = (headMetrics.lineRate * 100).toFixed(2);
 
-    // Create PR comment message
+    // Calculate new lines covered in head
+    const newLinesCovered = calculateNewLinesCovered(baseCoverage, headCoverage);
+
+    // Create PR comment message with diff-style format
     const message = [
-      `Base (${baseBranch}) coverage: ${basePercent}%`,
-      `Head (${headBranch}) coverage: ${headPercent}%`,
-      `Coverage difference: ${coverageDiffPercent}% (${coverageDiff >= 0 ? 'increase' : 'decrease'})`
+      '```diff',
+      '@@ Coverage Diff @@',
+      `## ${baseBranch}    #${headBranch}    +/-  ##`,
+      '===================================',
+      coverageDiff >= 0
+        ? `Coverage     ${basePercent}%   ${headPercent}%   ${coverageDiffPercent}%`
+        : `- Coverage     ${basePercent}%   ${headPercent}%   ${coverageDiffPercent}%`,
+      '===================================',
+      `  Files        ${Object.keys(baseCoverage).length}    ${Object.keys(headCoverage).length}    ${Object.keys(headCoverage).length - Object.keys(baseCoverage).length}`,
+      `  Lines        ${baseMetrics.lines || 0}    ${headMetrics.lines || 0}    ${(headMetrics.lines || 0) - (baseMetrics.lines || 0)}`,
+      `  Branches     ${baseMetrics.branches || 0}    ${headMetrics.branches || 0}    ${(headMetrics.branches || 0) - (baseMetrics.branches || 0)}`,
+      '===================================',
+      `  Hits         ${baseMetrics.hits || 0}    ${headMetrics.hits || 0}    ${(headMetrics.hits || 0) - (baseMetrics.hits || 0)}`,
+      // Only add minus sign if misses increased
+      `${headMetrics.misses > baseMetrics.misses ? '-' : ' '} Misses       ${baseMetrics.misses || 0}    ${headMetrics.misses || 0}    ${(headMetrics.misses || 0) - (baseMetrics.misses || 0)}`,
+      `  Partials     ${baseMetrics.partials || 0}    ${headMetrics.partials || 0}    ${(headMetrics.partials || 0) - (baseMetrics.partials || 0)}`,
+      '```'
     ].join('\n');
 
     // Post or update comment to PR
@@ -131,9 +148,6 @@ async function run() {
     }
 
     core.info(message);
-
-    // Calculate new lines covered in head
-    const newLinesCovered = calculateNewLinesCovered(baseCoverage, headCoverage);
 
     // Log the results
     core.info(`Coverage difference: ${coverageDiffPercent}% (${coverageDiff >= 0 ? 'increased' : 'decreased'})`);
@@ -188,10 +202,47 @@ async function downloadFile(bucket, filePath) {
 
 function getCoverageMetrics(coverageData) {
   const coverage = coverageData.coverage;
+  const classes = coverage.classes ? coverage.classes[0].class :
+    coverage.packages?.[0]?.package?.reduce((acc, pkg) =>
+      acc.concat(pkg.classes?.[0]?.class || []), []) || [];
+
+  let totalLines = 0;
+  let coveredLines = 0;
+  let branches = parseInt(coverage.$['branches-valid']) || 0;
+  let coveredBranches = parseInt(coverage.$['branches-covered']) || 0;
+  let misses = 0;
+  let partials = 0;
+
+  classes.forEach(cls => {
+    if (cls.lines?.[0]?.line) {
+      const lines = cls.lines[0].line;
+      totalLines += lines.length;
+      lines.forEach(line => {
+        const hits = parseInt(line.$.hits);
+        if (hits > 0) coveredLines++;
+        else misses++;
+
+        // Count branch coverage if available
+        if (line.$.branch === 'true') {
+          const conditions = line.$.condition_coverage?.match(/\d+/g) || [];
+          if (conditions.length === 2) {
+            if (parseInt(conditions[0]) > 0 && parseInt(conditions[0]) < parseInt(conditions[1])) {
+              partials++;
+            }
+          }
+        }
+      });
+    }
+  });
+
   return {
-    lineRate: parseFloat(coverage.$['line-rate']),
-    branchRate: parseFloat(coverage.$['branch-rate']),
-    complexity: parseFloat(coverage.$.complexity || 0),
+    lineRate: coveredLines / totalLines,
+    branchRate: branches > 0 ? coveredBranches / branches : 0,
+    lines: totalLines,
+    hits: coveredLines,
+    misses: misses,
+    partials: partials,
+    branches: branches,
     timestamp: coverage.$.timestamp
   };
 }

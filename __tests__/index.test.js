@@ -215,7 +215,7 @@ describe('Coverage Action', () => {
       owner: 'owner',
       repo: 'repo',
       issue_number: 123,
-      body: expect.stringMatching(/Coverage difference: [-\d.]+% \((increase|decrease)\)/)
+      body: expect.stringMatching(/```diff\n@@ Coverage Diff @@/)
     });
   });
 
@@ -366,7 +366,7 @@ describe('Coverage Action', () => {
       owner: 'owner',
       repo: 'repo',
       issue_number: 123,
-      body: expect.stringContaining('Base (main) coverage: 80.00%')
+      body: expect.stringMatching(/```diff\n@@ Coverage Diff @@/)
     });
   });
 
@@ -456,8 +456,86 @@ describe('Coverage Action', () => {
       owner: 'owner',
       repo: 'repo',
       comment_id: 456,
-      body: expect.stringContaining('Base (main) coverage: 80.00%')
+      body: expect.stringMatching(/```diff\n@@ Coverage Diff @@/)
     });
+  });
+
+  test('should create coverage diff message in correct format', async () => {
+    // Read the coverage XML files
+    const fs = require('fs');
+    const path = require('path');
+
+    const baseCoverageXML = fs.readFileSync(
+      path.join(__dirname, 'data', 'python-base.xml'),
+      'utf8'
+    );
+    const headCoverageXML = fs.readFileSync(
+      path.join(__dirname, 'data', 'python-head.xml'),
+      'utf8'
+    );
+
+    // Mock GitHub context
+    github.context = {
+      repo: {
+        owner: 'owner',
+        repo: 'repo'
+      },
+      payload: {
+        pull_request: {
+          number: 123
+        }
+      }
+    };
+
+    // Mock Octokit
+    const mockCreateComment = jest.fn();
+    const mockListComments = jest.fn().mockResolvedValue({ data: [] });
+    github.getOctokit = jest.fn().mockReturnValue({
+      rest: {
+        issues: {
+          createComment: mockCreateComment,
+          listComments: mockListComments
+        }
+      }
+    });
+
+    // Setup the Storage mock
+    Storage.mockImplementation(() => ({
+      bucket: jest.fn().mockReturnValue({
+        getFiles: jest.fn().mockResolvedValue([[
+          { name: 'repo/main/20240315_120000/coverage.xml' },
+          { name: 'repo/feature-branch/20240315_120000/coverage.xml' }
+        ]]),
+        file: jest.fn().mockReturnValue({
+          download: jest.fn()
+            .mockResolvedValueOnce([baseCoverageXML])
+            .mockResolvedValueOnce([headCoverageXML])
+        })
+      })
+    }));
+
+    await run();
+
+    // Verify the comment format
+    const commentBody = mockCreateComment.mock.calls[0][0].body;
+
+    // Verify all required sections are present
+    expect(commentBody).toMatch(/```diff/);
+    expect(commentBody).toMatch(/@@ Coverage Diff @@/);
+    expect(commentBody).toMatch(/##.*main.*#.*feature-branch.*\+\/-.*/);
+    expect(commentBody).toMatch(/={3,}/); // Separator lines
+    expect(commentBody).toMatch(/[+-]?\s*Coverage\s+\d+\.\d+%\s+\d+\.\d+%\s+[+-]?\d+\.\d+%/);
+    expect(commentBody).toMatch(/\s*Files\s+\d+\s+\d+\s+[+-]?\d+/);
+    expect(commentBody).toMatch(/\s*Lines\s+\d+\s+\d+\s+[+-]?\d+/);
+    expect(commentBody).toMatch(/\s*Branches\s+\d+\s+\d+\s+[+-]?\d+/);
+    expect(commentBody).toMatch(/\s*Hits\s+\d+\s+\d+\s+[+-]?\d+/);
+    expect(commentBody).toMatch(/[-]?\s*Misses\s+\d+\s+\d+\s+[+-]?\d+/);
+    expect(commentBody).toMatch(/\s*Partials\s+\d+\s+\d+\s+[+-]?\d+/);
+    expect(commentBody).toMatch(/```$/);
+
+    // Verify specific values from python-head.xml
+    expect(commentBody).toMatch(/Coverage.*100\.00%.*67\.74%.*-32\.26%/);
+    expect(commentBody).toMatch(/Branches.*6.*18.*12/);
   });
 
   test('should handle Python coverage format', async () => {
@@ -538,7 +616,7 @@ describe('Coverage Action', () => {
       owner: 'owner',
       repo: 'repo',
       issue_number: 123,
-      body: expect.stringMatching(/Base \(main\) coverage: 100\.00%/)
+      body: expect.stringMatching(/Coverage\s+100\.00%\s+67\.74%\s+-32\.26%/)
     });
   });
 }); 
