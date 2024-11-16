@@ -541,6 +541,9 @@ describe('Coverage Action', () => {
     // Verify specific values and alignment from python-head.xml
     expect(commentBody).toMatch(/Coverage\s+100\.00%\s+67\.74%\s+-32\.26%/);
     expect(commentBody).toMatch(/Branches\s+6\s+18\s+12/);
+
+    // Add this check after the bot identifier check:
+    expect(commentBody).toMatch(/The overall coverage statistics of the PR are:/);
   });
 
   test('should handle Python coverage format', async () => {
