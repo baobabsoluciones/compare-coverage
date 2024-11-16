@@ -97,17 +97,17 @@ async function run() {
       `## ${baseBranch}    #${headBranch}    +/-  ##`,
       '===================================',
       coverageDiff >= 0
-        ? `Coverage     ${basePercent}%   ${headPercent}%   ${coverageDiffPercent}%`
-        : `- Coverage     ${basePercent}%   ${headPercent}%   ${coverageDiffPercent}%`,
+        ? `  Coverage    ${basePercent.padStart(6)}%   ${headPercent.padStart(6)}%   ${coverageDiffPercent.padStart(6)}%`
+        : `- Coverage    ${basePercent.padStart(6)}%   ${headPercent.padStart(6)}%   ${coverageDiffPercent.padStart(6)}%`,
       '===================================',
-      `  Files        ${Object.keys(baseCoverage).length}    ${Object.keys(headCoverage).length}    ${Object.keys(headCoverage).length - Object.keys(baseCoverage).length}`,
-      `  Lines        ${baseMetrics.lines || 0}    ${headMetrics.lines || 0}    ${(headMetrics.lines || 0) - (baseMetrics.lines || 0)}`,
-      `  Branches     ${baseMetrics.branches || 0}    ${headMetrics.branches || 0}    ${(headMetrics.branches || 0) - (baseMetrics.branches || 0)}`,
+      `  Files        ${String(Object.keys(baseCoverage).length).padStart(6)}    ${String(Object.keys(headCoverage).length).padStart(6)}    ${String(Object.keys(headCoverage).length - Object.keys(baseCoverage).length).padStart(6)}`,
+      `  Lines        ${String(baseMetrics.lines || 0).padStart(6)}    ${String(headMetrics.lines || 0).padStart(6)}    ${String((headMetrics.lines || 0) - (baseMetrics.lines || 0)).padStart(6)}`,
+      `  Branches     ${String(baseMetrics.branches || 0).padStart(6)}    ${String(headMetrics.branches || 0).padStart(6)}    ${String((headMetrics.branches || 0) - (baseMetrics.branches || 0)).padStart(6)}`,
       '===================================',
-      `  Hits         ${baseMetrics.hits || 0}    ${headMetrics.hits || 0}    ${(headMetrics.hits || 0) - (baseMetrics.hits || 0)}`,
+      `  Hits         ${String(baseMetrics.hits || 0).padStart(6)}    ${String(headMetrics.hits || 0).padStart(6)}    ${String((headMetrics.hits || 0) - (baseMetrics.hits || 0)).padStart(6)}`,
       // Only add minus sign if misses increased
-      `${headMetrics.misses > baseMetrics.misses ? '-' : ' '} Misses       ${baseMetrics.misses || 0}    ${headMetrics.misses || 0}    ${(headMetrics.misses || 0) - (baseMetrics.misses || 0)}`,
-      `  Partials     ${baseMetrics.partials || 0}    ${headMetrics.partials || 0}    ${(headMetrics.partials || 0) - (baseMetrics.partials || 0)}`,
+      `${headMetrics.misses > baseMetrics.misses ? '-' : ' '} Misses       ${String(baseMetrics.misses || 0).padStart(6)}    ${String(headMetrics.misses || 0).padStart(6)}    ${String((headMetrics.misses || 0) - (baseMetrics.misses || 0)).padStart(6)}`,
+      `  Partials     ${String(baseMetrics.partials || 0).padStart(6)}    ${String(headMetrics.partials || 0).padStart(6)}    ${String((headMetrics.partials || 0) - (baseMetrics.partials || 0)).padStart(6)}`,
       '```'
     ].join('\n');
 
