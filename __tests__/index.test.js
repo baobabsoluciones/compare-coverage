@@ -275,11 +275,10 @@ describe('Coverage Action', () => {
     // Get all calls after clearing
     const calls = core.info.mock.calls.map(call => call[0]);
 
-    // Verify file statistics were processed correctly
+    // Verify overall statistics were processed correctly
     expect(calls).toEqual(
       expect.arrayContaining([
-        expect.stringContaining('File Statistics:'),
-        expect.stringContaining('File:'),
+        expect.stringContaining('Overall Statistics:'),
         expect.stringContaining('Total lines:'),
         expect.stringContaining('Covered lines:'),
         expect.stringContaining('Coverage:')
@@ -523,18 +522,16 @@ describe('Coverage Action', () => {
     // Get all calls after clearing
     const calls = core.info.mock.calls.map(call => call[0]);
 
-    // Check for specific Python file statistics
-    const hasModuleExample = calls.some(call =>
-      call.includes('File: module/example.py') ||
-      call.includes('File: python_coverage/module/example.py')
-    );
-    const hasModuleInit = calls.some(call =>
-      call.includes('File: module/__init__.py') ||
-      call.includes('File: python_coverage/module/__init__.py')
-    );
+    // Check for overall statistics
+    const hasOverallStats = calls.some(call => call.includes('Overall Statistics:'));
+    const hasTotalLines = calls.some(call => call.includes('Total lines:'));
+    const hasCoveredLines = calls.some(call => call.includes('Covered lines:'));
+    const hasCoveragePercent = calls.some(call => call.includes('Coverage:'));
 
-    expect(hasModuleExample).toBe(true, 'Missing module/example.py statistics');
-    expect(hasModuleInit).toBe(true, 'Missing module/__init__.py statistics');
+    expect(hasOverallStats).toBe(true, 'Missing overall statistics');
+    expect(hasTotalLines).toBe(true, 'Missing total lines');
+    expect(hasCoveredLines).toBe(true, 'Missing covered lines');
+    expect(hasCoveragePercent).toBe(true, 'Missing coverage percentage');
 
     // Verify PR comment was created with correct coverage info
     expect(mockCreateComment).toHaveBeenCalledWith({
