@@ -519,8 +519,9 @@ describe('Coverage Action', () => {
     // Verify the comment format
     const commentBody = mockCreateComment.mock.calls[0][0].body;
 
-    // Check for bot identifier
+    // Check for bot identifier and introductory text
     expect(commentBody).toMatch(/<!-- Coverage Report Bot -->/);
+    expect(commentBody).toMatch(/The overall coverage statistics of the PR are:/);
 
     // Verify all required sections are present
     expect(commentBody).toMatch(/```diff/);
@@ -528,39 +529,43 @@ describe('Coverage Action', () => {
     expect(commentBody).toMatch(/##.*main.*#.*feature-branch.*\+\/-.*/);
     expect(commentBody).toMatch(/={3,}/); // Separator lines
 
-    // Check alignment and formatting
-    expect(commentBody).toMatch(/[+-]?\s*Coverage\s+\d{1,3}\.\d{2}%\s+\d{1,3}\.\d{2}%\s+[+-]?\d{1,3}\.\d{2}%/);
-    expect(commentBody).toMatch(/\s*Files\s+\d+\s+\d+\s+[+-]?\d+/);
-    expect(commentBody).toMatch(/\s*Lines\s+\d+\s+\d+\s+[+-]?\d+/);
-    expect(commentBody).toMatch(/\s*Branches\s+\d+\s+\d+\s+[+-]?\d+/);
-    expect(commentBody).toMatch(/\s*Hits\s+\d+\s+\d+\s+[+-]?\d+/);
-    expect(commentBody).toMatch(/[-]?\s*Misses\s+\d+\s+\d+\s+[+-]?\d+/);
-    expect(commentBody).toMatch(/\s*Partials\s+\d+\s+\d+\s+[+-]?\d+/);
+    // Check alignment and formatting with emojis
+    expect(commentBody).toMatch(/[+-]?\s*Coverage\s+\d{1,3}\.\d{2}%\s+\d{1,3}\.\d{2}%\s+[+-]?\d{1,3}\.\d{2}%\s+[📈📉]/);
+    expect(commentBody).toMatch(/\s*Files\s+\d+\s+\d+\s+[+-]?\d+\s+[📈📉]/);
+    expect(commentBody).toMatch(/\s*Lines\s+\d+\s+\d+\s+[+-]?\d+\s+[📈📉]/);
+    expect(commentBody).toMatch(/\s*Branches\s+\d+\s+\d+\s+[+-]?\d+\s+[📈📉]/);
+    expect(commentBody).toMatch(/\s*Hits\s+\d+\s+\d+\s+[+-]?\d+\s+[📈📉]/);
+    expect(commentBody).toMatch(/[-]?\s*Misses\s+\d+\s+\d+\s+[+-]?\d+\s+[📈📉]/);
+    expect(commentBody).toMatch(/\s*Partials\s+\d+\s+\d+\s+[+-]?\d+\s+[📈📉]/);
     expect(commentBody).toMatch(/```$/);
 
-    // Verify specific values and alignment from python-head.xml
-    expect(commentBody).toMatch(/Coverage\s+100\.00%\s+67\.74%\s+-32\.26%/);
-    expect(commentBody).toMatch(/Branches\s+6\s+18\s+12/);
-
-    // Add this check after the bot identifier check:
-    expect(commentBody).toMatch(/The overall coverage statistics of the PR are:/);
+    // Verify specific values from python-head.xml with emojis
+    expect(commentBody).toMatch(/Coverage\s+100\.00%\s+67\.74%\s+-32\.26%\s+📉/);
+    expect(commentBody).toMatch(/Branches\s+6\s+18\s+12\s+📈/);
 
     // Check for files section when there are changes
     expect(commentBody).toMatch(/The main files with changes are:/);
     expect(commentBody).toMatch(/\| File \| Base Coverage \| Head Coverage \| Change \|/);
     expect(commentBody).toMatch(/\|------|---------------|---------------|--------|/);
 
-    // Verify file entries are properly formatted
+    // Verify file entries are properly formatted with emojis
     const fileLines = commentBody.split('\n').filter(line => line.startsWith('- |') || line.startsWith('  |'));
     fileLines.forEach(line => {
-      expect(line).toMatch(/^[-\s]\s\|\s[\w\/\.-]+\s\|\s\d+\.\d{2}%\s\|\s\d+\.\d{2}%\s\|\s[+-]?\d+\.\d{2}%\s\|$/);
+      expect(line).toMatch(/^[-\s]\|\s[\w\/\.-]+\s\|\s\d+\.\d{2}%\s\|\s\d+\.\d{2}%\s\|\s[+-]?\d+\.\d{2}%\s📈|📉\s\|$/);
     });
 
-    // Verify files with coverage decrease are marked with '-'
+    // Verify files with coverage decrease are marked with '-' and have 📉
     const decreasedLines = fileLines.filter(line => line.startsWith('- |'));
     decreasedLines.forEach(line => {
-      const match = line.match(/\|\s([+-]?\d+\.\d{2})%\s\|$/);
+      const match = line.match(/\|\s([+-]?\d+\.\d{2})%\s📉/);
       expect(parseFloat(match[1])).toBeLessThan(0);
+    });
+
+    // Verify files with coverage increase have 📈
+    const increasedLines = fileLines.filter(line => line.startsWith('  |'));
+    increasedLines.forEach(line => {
+      const match = line.match(/\|\s\+(\d+\.\d{2})%\s📈/);
+      expect(parseFloat(match[1])).toBeGreaterThan(0);
     });
   });
 
