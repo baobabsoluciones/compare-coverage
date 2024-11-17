@@ -3,7 +3,7 @@ name: Release
 on:
   push:
     tags:
-      - 'v*'
+      - 'build*'
 
 jobs:
   release:
@@ -28,11 +28,19 @@ jobs:
       - name: Build
         run: npm run build
 
-      - name: Push to master branch
+      - name: Create release tag
         run: |
           git config --global user.name 'github-actions[bot]'
           git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+
+          # Add built files
           git add dist/
-          git commit -m "Release ${{ github.ref_name }}"
-          git pull --rebase origin master
+          git commit -m "Build for ${{ github.ref_name }}"
           git push origin HEAD:master
+
+          # Create clean version tag (remove 'build' prefix)
+          VERSION_TAG="${{ github.ref_name }}"
+          CLEAN_TAG="${VERSION_TAG/build/v}"
+
+          git tag -a "$CLEAN_TAG" -m "Release $CLEAN_TAG"
+          git push origin "$CLEAN_TAG"
