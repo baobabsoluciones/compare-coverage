@@ -122,7 +122,18 @@ async function run() {
       message.push('');
       message.push('```diff');
       message.push('@@ File Coverage Diff @@');
-      message.push('===========================================');
+      // Calculate the maximum width needed for the separator
+      const maxWidth = Math.max(
+        // Header width
+        `## File    ${baseBranch}    ${headBranch}    +/-  ##`.length,
+        // Content width (including padding)
+        ...changedFiles.map(({ filename }) => filename.length + 40) // 40 for the coverage numbers and spacing
+      );
+      const separator = '='.repeat(maxWidth);
+
+      message.push(separator);
+      message.push(`## File    ${baseBranch}    ${headBranch}    +/-  ##`);
+      message.push(separator);
 
       // Sort files by absolute change amount
       changedFiles.sort((a, b) => Math.abs(b.change) - Math.abs(a.change));
@@ -136,7 +147,7 @@ async function run() {
         message.push(line);
       });
 
-      message.push('===========================================');
+      message.push(separator);
       message.push('```');
     }
 

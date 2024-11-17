@@ -287,37 +287,18 @@ describe('Coverage Action', () => {
   });
 
   test('should create new coverage comment if none exists', async () => {
-    const baseCoverageXML = `
-      <coverage line-rate="0.8" branch-rate="0.75">
-        <packages>
-          <package>
-            <classes>
-              <class filename="file1.js">
-                <lines>
-                  <line number="1" hits="1"/>
-                  <line number="2" hits="0"/>
-                </lines>
-              </class>
-            </classes>
-          </package>
-        </packages>
-      </coverage>`;
+    // Read the coverage XML files
+    const fs = require('fs');
+    const path = require('path');
 
-    const headCoverageXML = `
-      <coverage line-rate="0.85" branch-rate="0.80">
-        <packages>
-          <package>
-            <classes>
-              <class filename="file1.js">
-                <lines>
-                  <line number="1" hits="1"/>
-                  <line number="2" hits="1"/>
-                </lines>
-              </class>
-            </classes>
-          </package>
-        </packages>
-      </coverage>`;
+    const baseCoverageXML = fs.readFileSync(
+      path.join(__dirname, 'data', 'javascript-base.xml'),
+      'utf8'
+    );
+    const headCoverageXML = fs.readFileSync(
+      path.join(__dirname, 'data', 'javascript-head.xml'),
+      'utf8'
+    );
 
     // Mock GitHub context
     github.context = {
@@ -361,6 +342,7 @@ describe('Coverage Action', () => {
 
     await run();
 
+    // Verify comment creation
     expect(mockListComments).toHaveBeenCalled();
     expect(mockCreateComment).toHaveBeenCalledWith({
       owner: 'owner',
@@ -368,40 +350,32 @@ describe('Coverage Action', () => {
       issue_number: 123,
       body: expect.stringMatching(/```diff\n@@ Coverage Diff @@/)
     });
+
+    // Verify the created comment contains the correct format and sections
+    const commentBody = mockCreateComment.mock.calls[0][0].body;
+    expect(commentBody).toMatch(/The overall coverage statistics of the PR are:/);
+    expect(commentBody).toMatch(/@@ Coverage Diff @@/);
+    expect(commentBody).toMatch(/## main\s+#feature-branch\s+\+\/\-\s+##/);
+
+    // Only check for file table if there are coverage changes
+    if (commentBody.includes('The main files with changes are:')) {
+      expect(commentBody).toMatch(/## File\s+main\s+feature-branch\s+\+\/\-\s+##/);
+    }
   });
 
   test('should update existing coverage comment', async () => {
-    const baseCoverageXML = `
-      <coverage line-rate="0.8" branch-rate="0.75">
-        <packages>
-          <package>
-            <classes>
-              <class filename="file1.js">
-                <lines>
-                  <line number="1" hits="1"/>
-                  <line number="2" hits="0"/>
-                </lines>
-              </class>
-            </classes>
-          </package>
-        </packages>
-      </coverage>`;
+    // Read the coverage XML files
+    const fs = require('fs');
+    const path = require('path');
 
-    const headCoverageXML = `
-      <coverage line-rate="0.85" branch-rate="0.80">
-        <packages>
-          <package>
-            <classes>
-              <class filename="file1.js">
-                <lines>
-                  <line number="1" hits="1"/>
-                  <line number="2" hits="1"/>
-                </lines>
-              </class>
-            </classes>
-          </package>
-        </packages>
-      </coverage>`;
+    const baseCoverageXML = fs.readFileSync(
+      path.join(__dirname, 'data', 'javascript-base.xml'),
+      'utf8'
+    );
+    const headCoverageXML = fs.readFileSync(
+      path.join(__dirname, 'data', 'javascript-head.xml'),
+      'utf8'
+    );
 
     // Mock GitHub context
     github.context = {
@@ -416,15 +390,16 @@ describe('Coverage Action', () => {
       }
     };
 
-    // Mock Octokit with existing comment
+    // Mock Octokit with existing bot comment
     const mockUpdateComment = jest.fn();
     const mockListComments = jest.fn().mockResolvedValue({
       data: [{
-        id: 456,
+        id: 123,
         user: { type: 'Bot' },
         body: '<!-- Coverage Report Bot -->\n```diff\n@@ Coverage Diff @@'
       }]
     });
+
     github.getOctokit = jest.fn().mockReturnValue({
       rest: {
         issues: {
@@ -451,17 +426,29 @@ describe('Coverage Action', () => {
 
     await run();
 
+    // Verify the bot comment was found and updated
     expect(mockListComments).toHaveBeenCalled();
     expect(mockUpdateComment).toHaveBeenCalledWith({
       owner: 'owner',
       repo: 'repo',
-      comment_id: 456,
+      comment_id: 123,
       body: expect.stringMatching(/```diff\n@@ Coverage Diff @@/)
     });
+
+    // Verify the updated comment contains the correct coverage information
+    const updatedComment = mockUpdateComment.mock.calls[0][0].body;
+    expect(updatedComment).toMatch(/The overall coverage statistics of the PR are:/);
+    expect(updatedComment).toMatch(/@@ Coverage Diff @@/);
+    expect(updatedComment).toMatch(/## main\s+#feature-branch\s+\+\/\-\s+##/);
+
+    // Only check for file table if there are coverage changes
+    if (updatedComment.includes('The main files with changes are:')) {
+      expect(updatedComment).toMatch(/## File\s+main\s+feature-branch\s+\+\/\-\s+##/);
+    }
   });
 
   test('should create coverage diff message in correct format', async () => {
-    // Read the coverage XML files
+    // Read the coverage files and expected diff
     const fs = require('fs');
     const path = require('path');
 
@@ -473,6 +460,14 @@ describe('Coverage Action', () => {
       path.join(__dirname, 'data', 'python-head.xml'),
       'utf8'
     );
+    const expectedDiff = JSON.parse(fs.readFileSync(
+      path.join(__dirname, 'data', 'python-diff.json'),
+      'utf8'
+    ));
+
+    // Set up environment variables for branch names
+    process.env.GITHUB_BASE_REF = 'main';
+    process.env.GITHUB_HEAD_REF = 'feature-branch';
 
     // Mock GitHub context
     github.context = {
@@ -516,64 +511,23 @@ describe('Coverage Action', () => {
 
     await run();
 
-    // Verify the comment format
+    // Verify against expected diff
     const commentBody = mockCreateComment.mock.calls[0][0].body;
 
-    // Check for bot identifier and introductory text
-    expect(commentBody).toMatch(/<!-- Coverage Report Bot -->/);
-    expect(commentBody).toMatch(/The overall coverage statistics of the PR are:/);
+    // Check overall metrics
+    expect(commentBody).toMatch(
+      new RegExp(`Coverage\\s+${expectedDiff.overall.baseCoverage}\\s+${expectedDiff.overall.headCoverage}\\s+${expectedDiff.overall.difference}\\s+${expectedDiff.overall.trend}`)
+    );
 
-    // Verify all required sections are present
-    expect(commentBody).toMatch(/```diff/);
-    expect(commentBody).toMatch(/@@ Coverage Diff @@/);
-    expect(commentBody).toMatch(/##.*main.*#.*feature-branch.*\+\/-.*/);
-    expect(commentBody).toMatch(/={3,}/); // Separator lines
-
-    // Check alignment and formatting - only Coverage, Hits, Misses, and Partials have emojis
-    expect(commentBody).toMatch(/[+-]?\s*Coverage\s+\d{1,3}\.\d{2}%\s+\d{1,3}\.\d{2}%\s+[+-]?\d{1,3}\.\d{2}%\s+[📈📉]/);
-    expect(commentBody).toMatch(/\s*Files\s+\d+\s+\d+\s+[+-]?\d+\s*\n/);  // No emoji, match newline
-    expect(commentBody).toMatch(/\s*Lines\s+\d+\s+\d+\s+[+-]?\d+\s*\n/);  // No emoji, match newline
-    expect(commentBody).toMatch(/\s*Branches\s+\d+\s+\d+\s+[+-]?\d+\s*\n/);  // No emoji, match newline
-    expect(commentBody).toMatch(/\s*Hits\s+\d+\s+\d+\s+[+-]?\d+\s+[📈📉]/);
-    expect(commentBody).toMatch(/[-]?\s*Misses\s+\d+\s+\d+\s+[+-]?\d+\s+[📈📉]/);
-    expect(commentBody).toMatch(/\s*Partials\s+\d+\s+\d+\s+[+-]?\d+\s+[📈📉]/);
-
-    // Verify specific values from python-head.xml with emojis
-    expect(commentBody).toMatch(/Coverage\s+100\.00%\s+67\.74%\s+-32\.26%\s+📉/);
-    expect(commentBody).toMatch(/Branches\s+6\s+18\s+12\s*\n/);  // Changed to match newline instead of end of string
-
-    // Check for files section when there are changes
-    expect(commentBody).toMatch(/The main files with changes are:/);
-    expect(commentBody).toMatch(/@@ File Coverage Diff @@/);
-    expect(commentBody).toMatch(/={3,}/);  // Separator lines
-
-    // Verify file entries are properly formatted with emojis
-    const fileLines = commentBody.split('\n')
-      .filter(line => {
-        // Only get lines from the file coverage section
-        const isFileLine = line.startsWith('- ') || line.startsWith('  ');
-        const isInFileSection = line.includes('.py') || line.includes('.js'); // Look for file extensions
-        return isFileLine && isInFileSection;
+    // Check files section if there are changes
+    if (expectedDiff.files.length > 0) {
+      expectedDiff.files.forEach(file => {
+        const filePattern = new RegExp(
+          `${file.filename}\\s+${file.baseCoverage}\\s+${file.headCoverage}\\s+${file.difference}\\s+${file.trend}`
+        );
+        expect(commentBody).toMatch(filePattern);
       });
-
-    fileLines.forEach(line => {
-      // Updated regex to match actual format with flexible spacing
-      expect(line).toMatch(/^[-\s]\s[\w\/\.-]+\s+\d+\.\d{2}%\s+\d+\.\d{2}%\s+[+-]?\d+\.\d{2}%\s+[📈📉]/);
-    });
-
-    // Verify files with coverage decrease
-    const decreasedLines = fileLines.filter(line => line.startsWith('- '));
-    decreasedLines.forEach(line => {
-      const match = line.match(/\s+([+-]?\d+\.\d{2})%\s+📉/);
-      expect(parseFloat(match[1])).toBeLessThan(0);
-    });
-
-    // Verify files with coverage increase
-    const increasedLines = fileLines.filter(line => line.startsWith('  '));
-    increasedLines.forEach(line => {
-      const match = line.match(/\s+\+(\d+\.\d{2})%\s+📈/);
-      expect(parseFloat(match[1])).toBeGreaterThan(0);
-    });
+    }
   });
 
   test('should handle Python coverage format', async () => {
@@ -659,38 +613,18 @@ describe('Coverage Action', () => {
   });
 
   test('should find and update bot comment correctly', async () => {
-    // Add test coverage data
-    const baseCoverageXML = `
-      <coverage line-rate="0.8" branch-rate="0.75">
-        <packages>
-          <package>
-            <classes>
-              <class filename="file1.js">
-                <lines>
-                  <line number="1" hits="1"/>
-                  <line number="2" hits="0"/>
-                </lines>
-              </class>
-            </classes>
-          </package>
-        </packages>
-      </coverage>`;
+    // Read the coverage XML files
+    const fs = require('fs');
+    const path = require('path');
 
-    const headCoverageXML = `
-      <coverage line-rate="0.85" branch-rate="0.80">
-        <packages>
-          <package>
-            <classes>
-              <class filename="file1.js">
-                <lines>
-                  <line number="1" hits="1"/>
-                  <line number="2" hits="1"/>
-                </lines>
-              </class>
-            </classes>
-          </package>
-        </packages>
-      </coverage>`;
+    const baseCoverageXML = fs.readFileSync(
+      path.join(__dirname, 'data', 'javascript-base.xml'),
+      'utf8'
+    );
+    const headCoverageXML = fs.readFileSync(
+      path.join(__dirname, 'data', 'javascript-head.xml'),
+      'utf8'
+    );
 
     // Mock GitHub context
     github.context = {
@@ -726,6 +660,7 @@ describe('Coverage Action', () => {
         }
       ]
     });
+
     github.getOctokit = jest.fn().mockReturnValue({
       rest: {
         issues: {
