@@ -1,0 +1,50 @@
+{
+  "overall": {
+    "baseCoverage": "100.00%",
+    "headCoverage": "67.74%",
+    "difference": "-32.26%",
+    "trend": "📉",
+    "files": {
+      "base": 1,
+      "head": 1,
+      "difference": 0
+    },
+    "lines": {
+      "base": 12,
+      "head": 31,
+      "difference": 19
+    },
+    "branches": {
+      "base": 6,
+      "head": 18,
+      "difference": 12
+    },
+    "hits": {
+      "base": 12,
+      "head": 21,
+      "difference": 9,
+      "trend": "📈"
+    },
+    "misses": {
+      "base": 0,
+      "head": 10,
+      "difference": 10,
+      "trend": "📉"
+    },
+    "partials": {
+      "base": 0,
+      "head": 0,
+      "difference": 0,
+      "trend": "📈"
+    }
+  },
+  "files": [
+    {
+      "filename": "module/example.py",
+      "baseCoverage": "100.00%",
+      "headCoverage": "65.52%",
+      "difference": "-34.48%",
+      "trend": "📉"
+    }
+  ]
+}
