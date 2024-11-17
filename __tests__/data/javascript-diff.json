@@ -1,0 +1,42 @@
+{
+  "overall": {
+    "baseCoverage": "92.06%",
+    "headCoverage": "92.06%",
+    "difference": "0.00%",
+    "trend": "📈",
+    "files": {
+      "base": 1,
+      "head": 1,
+      "difference": 0
+    },
+    "lines": {
+      "base": 126,
+      "head": 126,
+      "difference": 0
+    },
+    "branches": {
+      "base": 54,
+      "head": 54,
+      "difference": 0
+    },
+    "hits": {
+      "base": 116,
+      "head": 116,
+      "difference": 0,
+      "trend": "📈"
+    },
+    "misses": {
+      "base": 10,
+      "head": 10,
+      "difference": 0,
+      "trend": "📈"
+    },
+    "partials": {
+      "base": 0,
+      "head": 0,
+      "difference": 0,
+      "trend": "📈"
+    }
+  },
+  "files": []
+}

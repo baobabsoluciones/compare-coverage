@@ -16,6 +16,31 @@ const mockEnv = {
   GITHUB_HEAD_REF: 'feature-branch'
 };
 
+// Add this before the describe block
+const fs = require('fs');
+const path = require('path');
+
+function loadTestData(type) {
+  const baseCoverageXML = fs.readFileSync(
+    path.join(__dirname, 'data', `${type}-base.xml`),
+    'utf8'
+  );
+  const headCoverageXML = fs.readFileSync(
+    path.join(__dirname, 'data', `${type}-head.xml`),
+    'utf8'
+  );
+  const expectedDiff = JSON.parse(fs.readFileSync(
+    path.join(__dirname, 'data', `${type}-diff.json`),
+    'utf8'
+  ));
+
+  return {
+    baseCoverageXML,
+    headCoverageXML,
+    expectedDiff
+  };
+}
+
 describe('Coverage Action', () => {
   beforeEach(() => {
     // Reset all mocks
@@ -215,7 +240,7 @@ describe('Coverage Action', () => {
       owner: 'owner',
       repo: 'repo',
       issue_number: 123,
-      body: expect.stringMatching(/Coverage difference: [-\d.]+% \((increase|decrease)\)/)
+      body: expect.stringMatching(/```diff\n@@ Coverage Diff @@/)
     });
   });
 
@@ -287,37 +312,7 @@ describe('Coverage Action', () => {
   });
 
   test('should create new coverage comment if none exists', async () => {
-    const baseCoverageXML = `
-      <coverage line-rate="0.8" branch-rate="0.75">
-        <packages>
-          <package>
-            <classes>
-              <class filename="file1.js">
-                <lines>
-                  <line number="1" hits="1"/>
-                  <line number="2" hits="0"/>
-                </lines>
-              </class>
-            </classes>
-          </package>
-        </packages>
-      </coverage>`;
-
-    const headCoverageXML = `
-      <coverage line-rate="0.85" branch-rate="0.80">
-        <packages>
-          <package>
-            <classes>
-              <class filename="file1.js">
-                <lines>
-                  <line number="1" hits="1"/>
-                  <line number="2" hits="1"/>
-                </lines>
-              </class>
-            </classes>
-          </package>
-        </packages>
-      </coverage>`;
+    const { baseCoverageXML, headCoverageXML, expectedDiff } = loadTestData('javascript');
 
     // Mock GitHub context
     github.context = {
@@ -361,47 +356,47 @@ describe('Coverage Action', () => {
 
     await run();
 
+    // Verify comment creation
     expect(mockListComments).toHaveBeenCalled();
     expect(mockCreateComment).toHaveBeenCalledWith({
       owner: 'owner',
       repo: 'repo',
       issue_number: 123,
-      body: expect.stringContaining('Base (main) coverage: 80.00%')
+      body: expect.stringMatching(/```diff\n@@ Coverage Diff @@/)
     });
+
+    // Verify the created comment matches the expected diff
+    const commentBody = mockCreateComment.mock.calls[0][0].body;
+    expect(commentBody).toMatch(/The overall coverage statistics of the PR are:/);
+    expect(commentBody).toMatch(/@@ Coverage Diff @@/);
+    expect(commentBody).toMatch(
+      new RegExp(`Coverage\\s+${expectedDiff.overall.baseCoverage}\\s+${expectedDiff.overall.headCoverage}\\s+${expectedDiff.overall.difference}\\s+${expectedDiff.overall.trend}`)
+    );
+
+    // Check files section if there are changes
+    if (expectedDiff.files.length > 0) {
+      expectedDiff.files.forEach(file => {
+        const filePattern = new RegExp(
+          `${file.filename}\\s+${file.baseCoverage}\\s+${file.headCoverage}\\s+${file.difference}\\s+${file.trend}`
+        );
+        expect(commentBody).toMatch(filePattern);
+      });
+    }
   });
 
   test('should update existing coverage comment', async () => {
-    const baseCoverageXML = `
-      <coverage line-rate="0.8" branch-rate="0.75">
-        <packages>
-          <package>
-            <classes>
-              <class filename="file1.js">
-                <lines>
-                  <line number="1" hits="1"/>
-                  <line number="2" hits="0"/>
-                </lines>
-              </class>
-            </classes>
-          </package>
-        </packages>
-      </coverage>`;
+    // Read the coverage XML files
+    const fs = require('fs');
+    const path = require('path');
 
-    const headCoverageXML = `
-      <coverage line-rate="0.85" branch-rate="0.80">
-        <packages>
-          <package>
-            <classes>
-              <class filename="file1.js">
-                <lines>
-                  <line number="1" hits="1"/>
-                  <line number="2" hits="1"/>
-                </lines>
-              </class>
-            </classes>
-          </package>
-        </packages>
-      </coverage>`;
+    const baseCoverageXML = fs.readFileSync(
+      path.join(__dirname, 'data', 'javascript-base.xml'),
+      'utf8'
+    );
+    const headCoverageXML = fs.readFileSync(
+      path.join(__dirname, 'data', 'javascript-head.xml'),
+      'utf8'
+    );
 
     // Mock GitHub context
     github.context = {
@@ -416,15 +411,16 @@ describe('Coverage Action', () => {
       }
     };
 
-    // Mock Octokit with existing comment
+    // Mock Octokit with existing bot comment
     const mockUpdateComment = jest.fn();
     const mockListComments = jest.fn().mockResolvedValue({
       data: [{
-        id: 456,
+        id: 123,
         user: { type: 'Bot' },
-        body: 'Base (main) coverage: 75.00%'
+        body: '<!-- Coverage Report Bot -->\n```diff\n@@ Coverage Diff @@'
       }]
     });
+
     github.getOctokit = jest.fn().mockReturnValue({
       rest: {
         issues: {
@@ -451,17 +447,29 @@ describe('Coverage Action', () => {
 
     await run();
 
+    // Verify the bot comment was found and updated
     expect(mockListComments).toHaveBeenCalled();
     expect(mockUpdateComment).toHaveBeenCalledWith({
       owner: 'owner',
       repo: 'repo',
-      comment_id: 456,
-      body: expect.stringContaining('Base (main) coverage: 80.00%')
+      comment_id: 123,
+      body: expect.stringMatching(/```diff\n@@ Coverage Diff @@/)
     });
+
+    // Verify the updated comment contains the correct coverage information
+    const updatedComment = mockUpdateComment.mock.calls[0][0].body;
+    expect(updatedComment).toMatch(/The overall coverage statistics of the PR are:/);
+    expect(updatedComment).toMatch(/@@ Coverage Diff @@/);
+    expect(updatedComment).toMatch(/## main\s+#feature-branch\s+\+\/\-\s+##/);
+
+    // Only check for file table if there are coverage changes
+    if (updatedComment.includes('The main files with changes are:')) {
+      expect(updatedComment).toMatch(/## File\s+main\s+feature-branch\s+\+\/\-\s+##/);
+    }
   });
 
-  test('should handle Python coverage format', async () => {
-    // Read the Python coverage XML files
+  test('should create coverage diff message in correct format', async () => {
+    // Read the coverage files and expected diff
     const fs = require('fs');
     const path = require('path');
 
@@ -473,6 +481,78 @@ describe('Coverage Action', () => {
       path.join(__dirname, 'data', 'python-head.xml'),
       'utf8'
     );
+    const expectedDiff = JSON.parse(fs.readFileSync(
+      path.join(__dirname, 'data', 'python-diff.json'),
+      'utf8'
+    ));
+
+    // Set up environment variables for branch names
+    process.env.GITHUB_BASE_REF = 'main';
+    process.env.GITHUB_HEAD_REF = 'feature-branch';
+
+    // Mock GitHub context
+    github.context = {
+      repo: {
+        owner: 'owner',
+        repo: 'repo'
+      },
+      payload: {
+        pull_request: {
+          number: 123
+        }
+      }
+    };
+
+    // Mock Octokit
+    const mockCreateComment = jest.fn();
+    const mockListComments = jest.fn().mockResolvedValue({ data: [] });
+    github.getOctokit = jest.fn().mockReturnValue({
+      rest: {
+        issues: {
+          createComment: mockCreateComment,
+          listComments: mockListComments
+        }
+      }
+    });
+
+    // Setup the Storage mock
+    Storage.mockImplementation(() => ({
+      bucket: jest.fn().mockReturnValue({
+        getFiles: jest.fn().mockResolvedValue([[
+          { name: 'repo/main/20240315_120000/coverage.xml' },
+          { name: 'repo/feature-branch/20240315_120000/coverage.xml' }
+        ]]),
+        file: jest.fn().mockReturnValue({
+          download: jest.fn()
+            .mockResolvedValueOnce([baseCoverageXML])
+            .mockResolvedValueOnce([headCoverageXML])
+        })
+      })
+    }));
+
+    await run();
+
+    // Verify against expected diff
+    const commentBody = mockCreateComment.mock.calls[0][0].body;
+
+    // Check overall metrics
+    expect(commentBody).toMatch(
+      new RegExp(`Coverage\\s+${expectedDiff.overall.baseCoverage}\\s+${expectedDiff.overall.headCoverage}\\s+${expectedDiff.overall.difference}\\s+${expectedDiff.overall.trend}`)
+    );
+
+    // Check files section if there are changes
+    if (expectedDiff.files.length > 0) {
+      expectedDiff.files.forEach(file => {
+        const filePattern = new RegExp(
+          `${file.filename}\\s+${file.baseCoverage}\\s+${file.headCoverage}\\s+${file.difference}\\s+${file.trend}`
+        );
+        expect(commentBody).toMatch(filePattern);
+      });
+    }
+  });
+
+  test('should handle Python coverage format', async () => {
+    const { baseCoverageXML, headCoverageXML, expectedDiff } = loadTestData('python');
 
     // Mock GitHub context
     github.context = {
@@ -514,31 +594,107 @@ describe('Coverage Action', () => {
       })
     }));
 
-    // Clear previous calls to core.info
-    core.info.mockClear();
+    await run();
+
+    // Verify against expected diff
+    const commentBody = mockCreateComment.mock.calls[0][0].body;
+    expect(commentBody).toMatch(
+      new RegExp(`Coverage\\s+${expectedDiff.overall.baseCoverage}\\s+${expectedDiff.overall.headCoverage}\\s+${expectedDiff.overall.difference}\\s+${expectedDiff.overall.trend}`)
+    );
+
+    // Check files section
+    expectedDiff.files.forEach(file => {
+      const filePattern = new RegExp(
+        `${file.filename}\\s+${file.baseCoverage}\\s+${file.headCoverage}\\s+${file.difference}\\s+${file.trend}`
+      );
+      expect(commentBody).toMatch(filePattern);
+    });
+  });
+
+  test('should find and update bot comment correctly', async () => {
+    // Read the coverage XML files
+    const fs = require('fs');
+    const path = require('path');
+
+    const baseCoverageXML = fs.readFileSync(
+      path.join(__dirname, 'data', 'javascript-base.xml'),
+      'utf8'
+    );
+    const headCoverageXML = fs.readFileSync(
+      path.join(__dirname, 'data', 'javascript-head.xml'),
+      'utf8'
+    );
+
+    // Mock GitHub context
+    github.context = {
+      repo: {
+        owner: 'owner',
+        repo: 'repo'
+      },
+      payload: {
+        pull_request: {
+          number: 123
+        }
+      }
+    };
+
+    // Mock Octokit with multiple comments including bot comment
+    const mockUpdateComment = jest.fn();
+    const mockListComments = jest.fn().mockResolvedValue({
+      data: [
+        {
+          id: 455,
+          user: { type: 'User' },
+          body: 'Some other comment'
+        },
+        {
+          id: 456,
+          user: { type: 'Bot' },
+          body: '<!-- Coverage Report Bot -->\n```diff\n@@ Coverage Diff @@'
+        },
+        {
+          id: 457,
+          user: { type: 'Bot' },
+          body: 'Some other bot comment'
+        }
+      ]
+    });
+
+    github.getOctokit = jest.fn().mockReturnValue({
+      rest: {
+        issues: {
+          updateComment: mockUpdateComment,
+          listComments: mockListComments
+        }
+      }
+    });
+
+    // Setup the Storage mock
+    Storage.mockImplementation(() => ({
+      bucket: jest.fn().mockReturnValue({
+        getFiles: jest.fn().mockResolvedValue([[
+          { name: 'repo/main/20240315_120000/coverage.xml' },
+          { name: 'repo/feature-branch/20240315_120000/coverage.xml' }
+        ]]),
+        file: jest.fn().mockReturnValue({
+          download: jest.fn()
+            .mockResolvedValueOnce([baseCoverageXML])
+            .mockResolvedValueOnce([headCoverageXML])
+        })
+      })
+    }));
 
     await run();
 
-    // Get all calls after clearing
-    const calls = core.info.mock.calls.map(call => call[0]);
-
-    // Check for overall statistics
-    const hasOverallStats = calls.some(call => call.includes('Overall Statistics:'));
-    const hasTotalLines = calls.some(call => call.includes('Total lines:'));
-    const hasCoveredLines = calls.some(call => call.includes('Covered lines:'));
-    const hasCoveragePercent = calls.some(call => call.includes('Coverage:'));
-
-    expect(hasOverallStats).toBe(true, 'Missing overall statistics');
-    expect(hasTotalLines).toBe(true, 'Missing total lines');
-    expect(hasCoveredLines).toBe(true, 'Missing covered lines');
-    expect(hasCoveragePercent).toBe(true, 'Missing coverage percentage');
-
-    // Verify PR comment was created with correct coverage info
-    expect(mockCreateComment).toHaveBeenCalledWith({
-      owner: 'owner',
-      repo: 'repo',
-      issue_number: 123,
-      body: expect.stringMatching(/Base \(main\) coverage: 100\.00%/)
-    });
+    // Verify the bot comment was found and updated
+    expect(mockListComments).toHaveBeenCalled();
+    expect(mockUpdateComment).toHaveBeenCalledWith(
+      expect.objectContaining({
+        owner: 'owner',
+        repo: 'repo',
+        comment_id: 456,
+        body: expect.stringContaining('<!-- Coverage Report Bot -->')
+      })
+    );
   });
 }); 

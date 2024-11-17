@@ -87,12 +87,71 @@ async function run() {
     const basePercent = (baseMetrics.lineRate * 100).toFixed(2);
     const headPercent = (headMetrics.lineRate * 100).toFixed(2);
 
-    // Create PR comment message
+    // Calculate new lines covered in head
+    const newLinesCovered = calculateNewLinesCovered(baseCoverage, headCoverage);
+
+    // Create PR comment message with diff-style format
     const message = [
-      `Base (${baseBranch}) coverage: ${basePercent}%`,
-      `Head (${headBranch}) coverage: ${headPercent}%`,
-      `Coverage difference: ${coverageDiffPercent}% (${coverageDiff >= 0 ? 'increase' : 'decrease'})`
-    ].join('\n');
+      '<!-- Coverage Report Bot -->',
+      'The overall coverage statistics of the PR are:',
+      '',
+      '```diff',
+      '@@ Coverage Diff @@',
+      `## ${baseBranch}    #${headBranch}    +/-  ##`,
+      '===========================================',
+      coverageDiff >= 0
+        ? `  Coverage    ${basePercent.padStart(6)}%   ${headPercent.padStart(6)}%   ${coverageDiffPercent.padStart(6)}% 📈`
+        : `- Coverage    ${basePercent.padStart(6)}%   ${headPercent.padStart(6)}%   ${coverageDiffPercent.padStart(6)}% 📉`,
+      '===========================================',
+      `  Files        ${String(Object.keys(baseCoverage).length).padStart(6)}    ${String(Object.keys(headCoverage).length).padStart(6)}    ${String(Object.keys(headCoverage).length - Object.keys(baseCoverage).length).padStart(6)}`,
+      `  Lines        ${String(baseMetrics.lines || 0).padStart(6)}    ${String(headMetrics.lines || 0).padStart(6)}    ${String((headMetrics.lines || 0) - (baseMetrics.lines || 0)).padStart(6)}`,
+      `  Branches     ${String(baseMetrics.branches || 0).padStart(6)}    ${String(headMetrics.branches || 0).padStart(6)}    ${String((headMetrics.branches || 0) - (baseMetrics.branches || 0)).padStart(6)}`,
+      '===========================================',
+      `  Hits         ${String(baseMetrics.hits || 0).padStart(6)}    ${String(headMetrics.hits || 0).padStart(6)}    ${String((headMetrics.hits || 0) - (baseMetrics.hits || 0)).padStart(6)} 📈`,
+      `${headMetrics.misses > baseMetrics.misses ? '-' : ' '} Misses       ${String(baseMetrics.misses || 0).padStart(6)}    ${String(headMetrics.misses || 0).padStart(6)}    ${String((headMetrics.misses || 0) - (baseMetrics.misses || 0)).padStart(6)} ${(headMetrics.misses || 0) <= (baseMetrics.misses || 0) ? '📈' : '📉'}`,
+      `  Partials     ${String(baseMetrics.partials || 0).padStart(6)}    ${String(headMetrics.partials || 0).padStart(6)}    ${String((headMetrics.partials || 0) - (baseMetrics.partials || 0)).padStart(6)} ${(headMetrics.partials || 0) <= (baseMetrics.partials || 0) ? '📈' : '📉'}`,
+      '```',
+      ''
+    ];
+
+    // Get files with coverage changes
+    const changedFiles = getFilesWithCoverageChanges(baseCoverage, headCoverage);
+
+    if (changedFiles.length > 0) {
+      message.push('The main files with changes are:');
+      message.push('');
+      message.push('```diff');
+      message.push('@@ File Coverage Diff @@');
+      // Calculate the maximum width needed for the separator
+      const maxWidth = Math.max(
+        // Header width
+        `## File    ${baseBranch}    ${headBranch}    +/-  ##`.length,
+        // Content width (including padding)
+        ...changedFiles.map(({ filename }) => filename.length + 40) // 40 for the coverage numbers and spacing
+      );
+      const separator = '='.repeat(maxWidth);
+
+      message.push(separator);
+      message.push(`## File    ${baseBranch}    ${headBranch}    +/-  ##`);
+      message.push(separator);
+
+      // Sort files by absolute change amount
+      changedFiles.sort((a, b) => Math.abs(b.change) - Math.abs(a.change));
+
+      changedFiles.forEach(({ filename, baseCov, headCov, change }) => {
+        const changeStr = change.toFixed(2);
+        const emoji = change >= 0 ? '📈' : '📉';
+        const line = change < 0
+          ? `- ${filename.padEnd(20)} ${baseCov.toFixed(2).padStart(6)}%   ${headCov.toFixed(2).padStart(6)}%   ${changeStr.padStart(6)}% ${emoji}`
+          : `  ${filename.padEnd(20)} ${baseCov.toFixed(2).padStart(6)}%   ${headCov.toFixed(2).padStart(6)}%   +${changeStr.padStart(6)}% ${emoji}`;
+        message.push(line);
+      });
+
+      message.push(separator);
+      message.push('```');
+    }
+
+    const finalMessage = message.join('\n');
 
     // Post or update comment to PR
     const octokit = github.getOctokit(githubToken);
@@ -107,7 +166,7 @@ async function run() {
 
     const botComment = comments.data.find(comment =>
       comment.user.type === 'Bot' &&
-      comment.body.includes('coverage:')
+      comment.body.includes('<!-- Coverage Report Bot -->')
     );
 
     if (botComment) {
@@ -116,7 +175,7 @@ async function run() {
         owner: context.repo.owner,
         repo: context.repo.repo,
         comment_id: botComment.id,
-        body: message
+        body: finalMessage
       });
       core.info('\nUpdated existing PR comment with coverage information:');
     } else {
@@ -125,15 +184,12 @@ async function run() {
         owner: context.repo.owner,
         repo: context.repo.repo,
         issue_number: context.payload.pull_request.number,
-        body: message
+        body: finalMessage
       });
       core.info('\nCreated new PR comment with coverage information:');
     }
 
-    core.info(message);
-
-    // Calculate new lines covered in head
-    const newLinesCovered = calculateNewLinesCovered(baseCoverage, headCoverage);
+    core.info(finalMessage);
 
     // Log the results
     core.info(`Coverage difference: ${coverageDiffPercent}% (${coverageDiff >= 0 ? 'increased' : 'decreased'})`);
@@ -188,10 +244,47 @@ async function downloadFile(bucket, filePath) {
 
 function getCoverageMetrics(coverageData) {
   const coverage = coverageData.coverage;
+  const classes = coverage.classes ? coverage.classes[0].class :
+    coverage.packages?.[0]?.package?.reduce((acc, pkg) =>
+      acc.concat(pkg.classes?.[0]?.class || []), []) || [];
+
+  let totalLines = 0;
+  let coveredLines = 0;
+  let branches = parseInt(coverage.$['branches-valid']) || 0;
+  let coveredBranches = parseInt(coverage.$['branches-covered']) || 0;
+  let misses = 0;
+  let partials = 0;
+
+  classes.forEach(cls => {
+    if (cls.lines?.[0]?.line) {
+      const lines = cls.lines[0].line;
+      totalLines += lines.length;
+      lines.forEach(line => {
+        const hits = parseInt(line.$.hits);
+        if (hits > 0) coveredLines++;
+        else misses++;
+
+        // Count branch coverage if available
+        if (line.$.branch === 'true') {
+          const conditions = line.$.condition_coverage?.match(/\d+/g) || [];
+          if (conditions.length === 2) {
+            if (parseInt(conditions[0]) > 0 && parseInt(conditions[0]) < parseInt(conditions[1])) {
+              partials++;
+            }
+          }
+        }
+      });
+    }
+  });
+
   return {
-    lineRate: parseFloat(coverage.$['line-rate']),
-    branchRate: parseFloat(coverage.$['branch-rate']),
-    complexity: parseFloat(coverage.$.complexity || 0),
+    lineRate: coveredLines / totalLines,
+    branchRate: branches > 0 ? coveredBranches / branches : 0,
+    lines: totalLines,
+    hits: coveredLines,
+    misses: misses,
+    partials: partials,
+    branches: branches,
     timestamp: coverage.$.timestamp
   };
 }
@@ -292,6 +385,79 @@ function printFileStatistics(coverage) {
   } catch (error) {
     core.warning(`Error printing file statistics: ${error.message}`);
   }
+}
+
+function getFilesWithCoverageChanges(baseCoverage, headCoverage) {
+  const changedFiles = [];
+  const baseFiles = new Map();
+  const headFiles = new Map();
+
+  // Helper to calculate file coverage
+  const calculateFileCoverage = (cls) => {
+    if (!cls.lines?.[0]?.line) return null;
+    const lines = cls.lines[0].line;
+    const covered = lines.filter(line => parseInt(line.$.hits) > 0).length;
+    return (covered / lines.length) * 100;
+  };
+
+  // Process base coverage
+  if (baseCoverage.coverage.classes) {
+    // Python format
+    baseCoverage.coverage.classes[0].class.forEach(cls => {
+      const coverage = calculateFileCoverage(cls);
+      if (coverage !== null) {
+        baseFiles.set(cls.$.filename, coverage);
+      }
+    });
+  } else if (baseCoverage.coverage.packages) {
+    // Java/JS format
+    baseCoverage.coverage.packages[0].package.forEach(pkg => {
+      pkg.classes?.[0]?.class.forEach(cls => {
+        const coverage = calculateFileCoverage(cls);
+        if (coverage !== null) {
+          baseFiles.set(cls.$.filename, coverage);
+        }
+      });
+    });
+  }
+
+  // Process head coverage similarly
+  if (headCoverage.coverage.classes) {
+    headCoverage.coverage.classes[0].class.forEach(cls => {
+      const coverage = calculateFileCoverage(cls);
+      if (coverage !== null) {
+        headFiles.set(cls.$.filename, coverage);
+      }
+    });
+  } else if (headCoverage.coverage.packages) {
+    headCoverage.coverage.packages[0].package.forEach(pkg => {
+      pkg.classes?.[0]?.class.forEach(cls => {
+        const coverage = calculateFileCoverage(cls);
+        if (coverage !== null) {
+          headFiles.set(cls.$.filename, coverage);
+        }
+      });
+    });
+  }
+
+  // Compare coverages
+  const allFiles = new Set([...baseFiles.keys(), ...headFiles.keys()]);
+  allFiles.forEach(filename => {
+    const baseCov = baseFiles.get(filename) || 0;
+    const headCov = headFiles.get(filename) || 0;
+    const change = headCov - baseCov;
+
+    if (Math.abs(change) > 0.01) { // Only include if change is significant
+      changedFiles.push({
+        filename,
+        baseCov,
+        headCov,
+        change
+      });
+    }
+  });
+
+  return changedFiles;
 }
 
 module.exports = { run };
