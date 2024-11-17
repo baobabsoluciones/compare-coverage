@@ -697,4 +697,89 @@ describe('Coverage Action', () => {
       })
     );
   });
+
+  test('should handle new files in coverage report', async () => {
+    // Load test data
+    const { baseCoverageXML, headCoverageXML, expectedDiff } = loadTestData('python-new-files');
+
+    // Mock GitHub context
+    github.context = {
+      repo: {
+        owner: 'owner',
+        repo: 'repo'
+      },
+      payload: {
+        pull_request: {
+          number: 123
+        }
+      }
+    };
+
+    // Mock Octokit
+    const mockCreateComment = jest.fn();
+    const mockListComments = jest.fn().mockResolvedValue({ data: [] });
+    github.getOctokit = jest.fn().mockReturnValue({
+      rest: {
+        issues: {
+          createComment: mockCreateComment,
+          listComments: mockListComments
+        }
+      }
+    });
+
+    // Setup the Storage mock
+    Storage.mockImplementation(() => ({
+      bucket: jest.fn().mockReturnValue({
+        getFiles: jest.fn().mockResolvedValue([[
+          { name: 'repo/main/20240315_120000/coverage.xml' },
+          { name: 'repo/feature-branch/20240315_120000/coverage.xml' }
+        ]]),
+        file: jest.fn().mockReturnValue({
+          download: jest.fn()
+            .mockResolvedValueOnce([baseCoverageXML])
+            .mockResolvedValueOnce([headCoverageXML])
+        })
+      })
+    }));
+
+    await run();
+
+    const commentBody = mockCreateComment.mock.calls[0][0].body;
+
+    // Verify overall statistics
+    expect(commentBody).toMatch(
+      new RegExp(`Files\\s+${expectedDiff.overall.files.base}\\s+${expectedDiff.overall.files.head}\\s+${expectedDiff.overall.files.difference}`)
+    );
+    expect(commentBody).toMatch(
+      new RegExp(`Coverage\\s+${expectedDiff.overall.baseCoverage}\\s+${expectedDiff.overall.headCoverage}\\s+${expectedDiff.overall.difference}\\s+${expectedDiff.overall.trend}`)
+    );
+
+    // Verify each file in the diff
+    expectedDiff.files.forEach(file => {
+      const prefix = file.isNew ? '\\+ ' : file.difference.startsWith('-') ? '- ' : '  ';
+      // Create a pattern that matches both formats of the difference value
+      const diffStr = file.difference.startsWith('+')
+        ? `[+]\\s*${file.difference.substring(1)}`
+        : file.difference;
+
+      const pattern = new RegExp(
+        `${prefix}${file.filename}\\s+${file.baseCoverage}\\s+${file.headCoverage}\\s+${diffStr}\\s+${file.trend}`
+      );
+
+      // Get the actual line for better debugging
+      const actualLine = commentBody.split('\n')
+        .find(line => line.includes(file.filename));
+
+      console.log('Expected pattern:', pattern);
+      console.log('Actual line:', actualLine);
+
+      expect(actualLine).toMatch(pattern);
+    });
+
+    // Verify new files are marked with '+'
+    const newFiles = expectedDiff.files.filter(f => f.isNew);
+    newFiles.forEach(file => {
+      expect(commentBody).toMatch(new RegExp(`\\+ ${file.filename}`));
+    });
+  });
 }); 
