@@ -103,7 +103,7 @@ async function run() {
         ? `  Coverage    ${basePercent.padStart(6)}%   ${headPercent.padStart(6)}%   ${coverageDiffPercent.padStart(6)}% 📈`
         : `- Coverage    ${basePercent.padStart(6)}%   ${headPercent.padStart(6)}%   ${coverageDiffPercent.padStart(6)}% 📉`,
       '===========================================',
-      `  Files        ${String(Object.keys(baseCoverage).length).padStart(6)}    ${String(Object.keys(headCoverage).length).padStart(6)}    ${String(Object.keys(headCoverage).length - Object.keys(baseCoverage).length).padStart(6)}`,
+      `  Files        ${String(countFiles(baseCoverage)).padStart(6)}    ${String(countFiles(headCoverage)).padStart(6)}    ${String(countFiles(headCoverage) - countFiles(baseCoverage)).padStart(6)}`,
       `  Lines        ${String(baseMetrics.lines || 0).padStart(6)}    ${String(headMetrics.lines || 0).padStart(6)}    ${String((headMetrics.lines || 0) - (baseMetrics.lines || 0)).padStart(6)}`,
       `  Branches     ${String(baseMetrics.branches || 0).padStart(6)}    ${String(headMetrics.branches || 0).padStart(6)}    ${String((headMetrics.branches || 0) - (baseMetrics.branches || 0)).padStart(6)}`,
       '===========================================',
@@ -138,12 +138,11 @@ async function run() {
       // Sort files by absolute change amount
       changedFiles.sort((a, b) => Math.abs(b.change) - Math.abs(a.change));
 
-      changedFiles.forEach(({ filename, baseCov, headCov, change }) => {
+      changedFiles.forEach(({ filename, baseCov, headCov, change, isNew }) => {
         const changeStr = change.toFixed(2);
         const emoji = change >= 0 ? '📈' : '📉';
-        const line = change < 0
-          ? `- ${filename.padEnd(20)} ${baseCov.toFixed(2).padStart(6)}%   ${headCov.toFixed(2).padStart(6)}%   ${changeStr.padStart(6)}% ${emoji}`
-          : `  ${filename.padEnd(20)} ${baseCov.toFixed(2).padStart(6)}%   ${headCov.toFixed(2).padStart(6)}%   +${changeStr.padStart(6)}% ${emoji}`;
+        const prefix = isNew ? '+ ' : change < 0 ? '- ' : '  ';
+        const line = `${prefix}${filename.padEnd(20)} ${baseCov.toFixed(2).padStart(6)}%   ${headCov.toFixed(2).padStart(6)}%   ${change >= 0 ? '+' : ''}${changeStr.padStart(6)}% ${emoji}`;
         message.push(line);
       });
 
@@ -446,18 +445,42 @@ function getFilesWithCoverageChanges(baseCoverage, headCoverage) {
     const baseCov = baseFiles.get(filename) || 0;
     const headCov = headFiles.get(filename) || 0;
     const change = headCov - baseCov;
+    const isNew = !baseFiles.has(filename); // File is new if it's not in base coverage
 
-    if (Math.abs(change) > 0.01) { // Only include if change is significant
+    if (Math.abs(change) > 0.01 || isNew) { // Include if change is significant or file is new
       changedFiles.push({
         filename,
         baseCov,
         headCov,
-        change
+        change,
+        isNew
       });
     }
   });
 
   return changedFiles;
+}
+
+function countFiles(coverage) {
+  let count = 0;
+  if (coverage.coverage.classes) {
+    // Python format
+    coverage.coverage.packages.forEach(pkg => {
+      pkg.classes.forEach(cls => {
+        cls.class.forEach(c => {
+          if (c.$.filename) count++;
+        });
+      });
+    });
+  } else if (coverage.coverage.packages) {
+    // Java/JS format
+    coverage.coverage.packages[0].package.forEach(pkg => {
+      pkg.classes?.[0]?.class.forEach(cls => {
+        if (cls.$.filename) count++;
+      });
+    });
+  }
+  return count;
 }
 
 module.exports = { run };
