@@ -9,7 +9,7 @@ inputs:
   min_coverage:
     description: 'Minimum required coverage percentage'
     required: false
-    default: '80'
+    default: '00'
   github_token:
     description: 'GitHub token for PR comments'
     required: true

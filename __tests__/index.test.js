@@ -938,4 +938,80 @@ describe('Coverage Action', () => {
       body: expect.stringContaining('<!-- Coverage Report Bot -->')
     });
   });
+
+  test('should highlight rows with coverage below minimum threshold', async () => {
+    // Mock GitHub context
+    github.context = {
+      repo: {
+        owner: 'owner',
+        repo: 'repo'
+      },
+      payload: {
+        pull_request: {
+          number: 123
+        }
+      }
+    };
+
+    // Set minimum coverage to 80%
+    core.getInput.mockImplementation((name) => {
+      const inputs = {
+        gcp_credentials: '{"type": "service_account"}',
+        min_coverage: '80',
+        github_token: 'fake-token',
+        gcp_bucket: 'test-bucket'
+      };
+      return inputs[name];
+    });
+
+    // Mock Octokit
+    const mockCreateComment = jest.fn();
+    const mockListComments = jest.fn().mockResolvedValue({ data: [] });
+    github.getOctokit = jest.fn().mockReturnValue({
+      rest: {
+        issues: {
+          createComment: mockCreateComment,
+          listComments: mockListComments
+        }
+      }
+    });
+
+    const { baseCoverageXML, headCoverageXML } = loadTestData('python');
+
+    // Setup the Storage mock
+    Storage.mockImplementation(() => ({
+      bucket: jest.fn().mockReturnValue({
+        getFiles: jest.fn().mockResolvedValue([[
+          { name: 'repo/main/20240315_120000/coverage.xml' },
+          { name: 'repo/feature-branch/20240315_120000/coverage.xml' }
+        ]]),
+        file: jest.fn().mockReturnValue({
+          download: jest.fn()
+            .mockResolvedValueOnce([baseCoverageXML])
+            .mockResolvedValueOnce([headCoverageXML])
+        })
+      })
+    }));
+
+    await run();
+
+    // Get the comment body
+    const commentBody = mockCreateComment.mock.calls[0][0].body;
+
+    // Verify that rows with coverage below threshold start with '-'
+    const lines = commentBody.split('\n');
+    const coverageLines = lines.filter(line =>
+      line.includes('%') && !line.includes('Missing lines:')
+    );
+
+    coverageLines.forEach(line => {
+      const coverageMatch = line.match(/(\d+\.\d+)%/);
+      if (coverageMatch) {
+        const coverage = parseFloat(coverageMatch[1]);
+        if (coverage < 80) { // minCoverage
+          expect(line).toMatch(/^-/);
+        }
+      }
+    });
+  });
 }); 

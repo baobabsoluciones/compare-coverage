@@ -147,9 +147,7 @@ async function run() {
       '@@ Coverage Diff @@',
       `## ${baseBranch}    #${headBranch}    +/-  ##`,
       '===========================================',
-      coverageDiff >= 0
-        ? `  Coverage    ${basePercent.padStart(6)}%   ${headPercent.padStart(6)}%   ${coverageDiffPercent.padStart(6)}% 📈`
-        : `- Coverage    ${basePercent.padStart(6)}%   ${headPercent.padStart(6)}%   ${coverageDiffPercent.padStart(6)}% 📉`,
+      `${coverageDiff >= 0 ? (headPercent < minCoverage ? '-' : ' ') : '-'} Coverage    ${basePercent.padStart(6)}%   ${headPercent.padStart(6)}%   ${coverageDiffPercent.padStart(6)}% ${coverageDiff >= 0 ? '📈' : '📉'}`,
       '===========================================',
       `  Files        ${String(countFiles(baseCoverage)).padStart(6)}    ${String(countFiles(headCoverage)).padStart(6)}    ${String(countFiles(headCoverage) - countFiles(baseCoverage)).padStart(6)}`,
       `  Lines        ${String(baseMetrics.lines || 0).padStart(6)}    ${String(headMetrics.lines || 0).padStart(6)}    ${String((headMetrics.lines || 0) - (baseMetrics.lines || 0)).padStart(6)}`,
@@ -186,7 +184,12 @@ async function run() {
       changedFiles.forEach(({ filename, baseCov, headCov, change, isNew, missingLines }) => {
         const changeStr = change.toFixed(2);
         const emoji = change >= 0 ? '📈' : '📉';
-        const prefix = isNew ? '+ ' : change < 0 ? '- ' : '  ';
+        const prefix = isNew
+          ? '+ '
+          : (change < 0 || headCov < minCoverage)
+            ? '- '
+            : '  ';
+
         const line = `${prefix}${filename.padEnd(20)} ${baseCov.toFixed(2).padStart(6)}%   ${headCov.toFixed(2).padStart(6)}%   ${change >= 0 ? '+' : ''}${changeStr.padStart(6)}% ${emoji}`;
         message.push(line);
 
