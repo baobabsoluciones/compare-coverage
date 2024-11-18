@@ -55,7 +55,8 @@ describe('Coverage Action', () => {
         gcp_credentials: '{"type": "service_account"}',
         min_coverage: '80',
         github_token: 'fake-token',
-        gcp_bucket: 'test-bucket'
+        gcp_bucket: 'test-bucket',
+        show_missing_lines: 'false'
       };
       return inputs[name];
     });
@@ -152,7 +153,8 @@ describe('Coverage Action', () => {
         gcp_credentials: 'invalid-json',
         min_coverage: '80',
         github_token: 'fake-token',
-        gcp_bucket: 'test-bucket'
+        gcp_bucket: 'test-bucket',
+        show_missing_lines: 'false'
       };
       return inputs[name];
     });
@@ -165,6 +167,32 @@ describe('Coverage Action', () => {
   });
 
   test('should handle missing coverage reports', async () => {
+    // Mock GitHub context
+    github.context = {
+      repo: {
+        owner: 'owner',
+        repo: 'repo'
+      },
+      payload: {
+        pull_request: {
+          number: 123
+        }
+      }
+    };
+
+    // Mock Octokit
+    const mockCreateComment = jest.fn();
+    const mockListComments = jest.fn().mockResolvedValue({ data: [] });
+    github.getOctokit = jest.fn().mockReturnValue({
+      rest: {
+        issues: {
+          createComment: mockCreateComment,
+          listComments: mockListComments
+        }
+      }
+    });
+
+    // Setup the Storage mock with empty file list
     Storage.mockImplementation(() => ({
       bucket: jest.fn().mockReturnValue({
         getFiles: jest.fn().mockResolvedValue([[]])
@@ -173,9 +201,21 @@ describe('Coverage Action', () => {
 
     await run();
 
-    expect(core.setFailed).toHaveBeenCalledWith(
-      expect.stringContaining('Could not find coverage reports')
-    );
+    // Verify the message was posted
+    expect(mockCreateComment).toHaveBeenCalledWith({
+      owner: 'owner',
+      repo: 'repo',
+      issue_number: 123,
+      body: expect.stringContaining('Both branches (main and feature-branch) have no available coverage reports')
+    });
+
+    // Verify it includes the bot marker
+    expect(mockCreateComment).toHaveBeenCalledWith({
+      owner: 'owner',
+      repo: 'repo',
+      issue_number: 123,
+      body: expect.stringContaining('<!-- Coverage Report Bot -->')
+    });
   });
 
   test('should calculate coverage differences correctly', async () => {
@@ -781,5 +821,290 @@ describe('Coverage Action', () => {
     newFiles.forEach(file => {
       expect(commentBody).toMatch(new RegExp(`\\+ ${file.filename}`));
     });
+  });
+
+  test('should include missing line numbers in coverage report', async () => {
+    const { baseCoverageXML, headCoverageXML } = loadTestData('python');
+
+    // Override to show missing lines
+    core.getInput.mockImplementation((name) => {
+      const inputs = {
+        gcp_credentials: '{"type": "service_account"}',
+        min_coverage: '80',
+        github_token: 'fake-token',
+        gcp_bucket: 'test-bucket',
+        show_missing_lines: 'true'  // Set to true for this test
+      };
+      return inputs[name];
+    });
+
+    // Mock GitHub context
+    github.context = {
+      repo: {
+        owner: 'owner',
+        repo: 'repo'
+      },
+      payload: {
+        pull_request: {
+          number: 123
+        }
+      }
+    };
+
+    // Rest of the test remains the same...
+    const mockCreateComment = jest.fn();
+    const mockListComments = jest.fn().mockResolvedValue({ data: [] });
+    github.getOctokit = jest.fn().mockReturnValue({
+      rest: {
+        issues: {
+          createComment: mockCreateComment,
+          listComments: mockListComments
+        }
+      }
+    });
+
+    Storage.mockImplementation(() => ({
+      bucket: jest.fn().mockReturnValue({
+        getFiles: jest.fn().mockResolvedValue([[
+          { name: 'repo/main/20240315_120000/coverage.xml' },
+          { name: 'repo/feature-branch/20240315_120000/coverage.xml' }
+        ]]),
+        file: jest.fn().mockReturnValue({
+          download: jest.fn()
+            .mockResolvedValueOnce([baseCoverageXML])
+            .mockResolvedValueOnce([headCoverageXML])
+        })
+      })
+    }));
+
+    await run();
+
+    // Get the comment body
+    const commentBody = mockCreateComment.mock.calls[0][0].body;
+
+    // Verify that missing lines are included in the report
+    expect(commentBody).toMatch(/Missing lines: \d+(?:-\d+)?(?:, \d+(?:-\d+)?)*$/m);
+
+    // Verify the format of missing lines (should be either single numbers or ranges)
+    const missingLinesMatch = commentBody.match(/Missing lines: ([\d\-, ]+)/);
+    if (missingLinesMatch) {
+      const missingLines = missingLinesMatch[1];
+      // Should match format like "33-49" or "7-14, 29, 32, 43"
+      expect(missingLines).toMatch(/^\d+(?:-\d+)?(?:, \d+(?:-\d+)?)*$/);
+    }
+  });
+
+  test('should post message when coverage report is missing', async () => {
+    // Mock GitHub context
+    github.context = {
+      repo: {
+        owner: 'owner',
+        repo: 'repo'
+      },
+      payload: {
+        pull_request: {
+          number: 123
+        }
+      }
+    };
+
+    // Mock Octokit
+    const mockCreateComment = jest.fn();
+    const mockListComments = jest.fn().mockResolvedValue({ data: [] });
+    github.getOctokit = jest.fn().mockReturnValue({
+      rest: {
+        issues: {
+          createComment: mockCreateComment,
+          listComments: mockListComments
+        }
+      }
+    });
+
+    // Setup the Storage mock with no files for base branch
+    Storage.mockImplementation(() => ({
+      bucket: jest.fn().mockReturnValue({
+        getFiles: jest.fn().mockResolvedValue([[
+          // Only head branch has coverage
+          { name: 'repo/feature-branch/20240315_120000/coverage.xml' }
+        ]]),
+        file: jest.fn().mockReturnValue({
+          download: jest.fn()
+        })
+      })
+    }));
+
+    await run();
+
+    // Verify the error message was posted
+    expect(mockCreateComment).toHaveBeenCalledWith({
+      owner: 'owner',
+      repo: 'repo',
+      issue_number: 123,
+      body: expect.stringContaining('Branch main has no available coverage report')
+    });
+
+    // Verify it includes the bot marker
+    expect(mockCreateComment).toHaveBeenCalledWith({
+      owner: 'owner',
+      repo: 'repo',
+      issue_number: 123,
+      body: expect.stringContaining('<!-- Coverage Report Bot -->')
+    });
+  });
+
+  test('should highlight rows with coverage below minimum threshold', async () => {
+    core.getInput.mockImplementation((name) => {
+      const inputs = {
+        gcp_credentials: '{"type": "service_account"}',
+        min_coverage: '80',
+        github_token: 'fake-token',
+        gcp_bucket: 'test-bucket',
+        show_missing_lines: 'false'
+      };
+      return inputs[name];
+    });
+    // Mock GitHub context
+    github.context = {
+      repo: {
+        owner: 'owner',
+        repo: 'repo'
+      },
+      payload: {
+        pull_request: {
+          number: 123
+        }
+      }
+    };
+
+    // Mock Octokit
+    const mockCreateComment = jest.fn();
+    const mockListComments = jest.fn().mockResolvedValue({ data: [] });
+    github.getOctokit = jest.fn().mockReturnValue({
+      rest: {
+        issues: {
+          createComment: mockCreateComment,
+          listComments: mockListComments
+        }
+      }
+    });
+
+    const { baseCoverageXML, headCoverageXML } = loadTestData('python');
+
+    // Setup the Storage mock
+    Storage.mockImplementation(() => ({
+      bucket: jest.fn().mockReturnValue({
+        getFiles: jest.fn().mockResolvedValue([[
+          { name: 'repo/main/20240315_120000/coverage.xml' },
+          { name: 'repo/feature-branch/20240315_120000/coverage.xml' }
+        ]]),
+        file: jest.fn().mockReturnValue({
+          download: jest.fn()
+            .mockResolvedValueOnce([baseCoverageXML])
+            .mockResolvedValueOnce([headCoverageXML])
+        })
+      })
+    }));
+
+    await run();
+
+    // Get the comment body
+    const commentBody = mockCreateComment.mock.calls[0][0].body;
+
+    // Verify that rows with coverage below threshold start with '-'
+    const lines = commentBody.split('\n');
+    const coverageLines = lines.filter(line =>
+      line.includes('%') && !line.includes('Missing lines:')
+    );
+
+    coverageLines.forEach(line => {
+      const coverageMatch = line.match(/(\d+\.\d+)%/);
+      if (coverageMatch) {
+        const coverage = parseFloat(coverageMatch[1]);
+        if (coverage < 80) { // minCoverage
+          expect(line).toMatch(/^-/);
+        }
+      }
+    });
+  });
+
+  test('should respect show_missing_lines parameter', async () => {
+    // Mock GitHub context
+    github.context = {
+      repo: {
+        owner: 'owner',
+        repo: 'repo'
+      },
+      payload: {
+        pull_request: {
+          number: 123
+        }
+      }
+    };
+
+    // Test with show_missing_lines = false
+    core.getInput.mockImplementation((name) => {
+      const inputs = {
+        gcp_credentials: '{"type": "service_account"}',
+        min_coverage: '80',
+        github_token: 'fake-token',
+        gcp_bucket: 'test-bucket',
+        show_missing_lines: 'false'
+      };
+      return inputs[name];
+    });
+
+    const mockCreateComment = jest.fn();
+    const mockListComments = jest.fn().mockResolvedValue({ data: [] });
+    github.getOctokit = jest.fn().mockReturnValue({
+      rest: {
+        issues: {
+          createComment: mockCreateComment,
+          listComments: mockListComments
+        }
+      }
+    });
+
+    const { baseCoverageXML, headCoverageXML } = loadTestData('python');
+
+    // Setup the Storage mock
+    Storage.mockImplementation(() => ({
+      bucket: jest.fn().mockReturnValue({
+        getFiles: jest.fn().mockResolvedValue([[
+          { name: 'repo/main/20240315_120000/coverage.xml' },
+          { name: 'repo/feature-branch/20240315_120000/coverage.xml' }
+        ]]),
+        file: jest.fn().mockReturnValue({
+          download: jest.fn()
+            .mockResolvedValueOnce([baseCoverageXML])
+            .mockResolvedValueOnce([headCoverageXML])
+        })
+      })
+    }));
+
+    await run();
+
+    // Verify missing lines are not shown
+    let commentBody = mockCreateComment.mock.calls[0][0].body;
+    expect(commentBody).not.toMatch(/Missing lines:/);
+
+    // Test with show_missing_lines = true
+    core.getInput.mockImplementation((name) => {
+      const inputs = {
+        gcp_credentials: '{"type": "service_account"}',
+        min_coverage: '80',
+        github_token: 'fake-token',
+        gcp_bucket: 'test-bucket',
+        show_missing_lines: 'true'
+      };
+      return inputs[name];
+    });
+
+    mockCreateComment.mockClear();
+
+    await run();
+
+    // Verify missing lines are shown
+    commentBody = mockCreateComment.mock.calls[0][0].body;
+    expect(commentBody).toMatch(/Missing lines:/);
   });
 }); 
