@@ -67509,7 +67509,7 @@ module.exports = Queue;
 /**
  * GitHub Action for comparing code coverage between branches
  * Supports Java, JavaScript, and Python coverage formats
- * Version: 0.0.10
+ * Version: 0.0.11
  */
 const core = __nccwpck_require__(7484);
 const github = __nccwpck_require__(3228);
@@ -67523,6 +67523,7 @@ async function run() {
     const minCoverage = parseFloat(core.getInput('min_coverage')) || 80;
     const githubToken = core.getInput('github_token', { required: true });
     const bucketName = core.getInput('gcp_bucket', { required: true });
+    const showMissingLines = core.getInput('show_missing_lines').toLowerCase() === 'true';
 
     // Parse GCP credentials
     let credentials;
@@ -67557,7 +67558,55 @@ async function run() {
     const headTimestamp = await getLatestTimestamp(bucket, headPath);
 
     if (!baseTimestamp || !headTimestamp) {
-      throw new Error('Could not find coverage reports for one or both branches');
+      // Create error message
+      const message = [
+        '<!-- Coverage Report Bot -->',
+        '⚠️ Coverage Report Status:',
+        '',
+        '```',
+        !baseTimestamp && !headTimestamp
+          ? `Both branches (${baseBranch} and ${headBranch}) have no available coverage reports. Coverage statistics cannot be calculated.`
+          : !baseTimestamp
+            ? `Branch ${baseBranch} has no available coverage report. Coverage statistics cannot be calculated.`
+            : `Branch ${headBranch} has no available coverage report. Coverage statistics cannot be calculated.`,
+        '```'
+      ].join('\n');
+
+      // Post message to PR
+      const octokit = github.getOctokit(githubToken);
+      const context = github.context;
+
+      // Search for existing comment
+      const comments = await octokit.rest.issues.listComments({
+        owner: context.repo.owner,
+        repo: context.repo.repo,
+        issue_number: context.payload.pull_request.number,
+      });
+
+      const botComment = comments.data.find(comment =>
+        comment.user.type === 'Bot' &&
+        comment.body.includes('<!-- Coverage Report Bot -->')
+      );
+
+      if (botComment) {
+        await octokit.rest.issues.updateComment({
+          owner: context.repo.owner,
+          repo: context.repo.repo,
+          comment_id: botComment.id,
+          body: message
+        });
+      } else {
+        await octokit.rest.issues.createComment({
+          owner: context.repo.owner,
+          repo: context.repo.repo,
+          issue_number: context.payload.pull_request.number,
+          body: message
+        });
+      }
+
+      // Log the message but don't fail the action
+      core.info('Posted coverage unavailability message to PR');
+      return;
     }
 
     core.info(`Found latest base coverage at timestamp: ${baseTimestamp}`);
@@ -67607,9 +67656,7 @@ async function run() {
       '@@ Coverage Diff @@',
       `## ${baseBranch}    #${headBranch}    +/-  ##`,
       '===========================================',
-      coverageDiff >= 0
-        ? `  Coverage    ${basePercent.padStart(6)}%   ${headPercent.padStart(6)}%   ${coverageDiffPercent.padStart(6)}% 📈`
-        : `- Coverage    ${basePercent.padStart(6)}%   ${headPercent.padStart(6)}%   ${coverageDiffPercent.padStart(6)}% 📉`,
+      `${coverageDiff >= 0 ? (headPercent < minCoverage ? '-' : ' ') : '-'} Coverage    ${basePercent.padStart(6)}%   ${headPercent.padStart(6)}%   ${coverageDiffPercent.padStart(6)}% ${coverageDiff >= 0 ? '📈' : '📉'}`,
       '===========================================',
       `  Files        ${String(countFiles(baseCoverage)).padStart(6)}    ${String(countFiles(headCoverage)).padStart(6)}    ${String(countFiles(headCoverage) - countFiles(baseCoverage)).padStart(6)}`,
       `  Lines        ${String(baseMetrics.lines || 0).padStart(6)}    ${String(headMetrics.lines || 0).padStart(6)}    ${String((headMetrics.lines || 0) - (baseMetrics.lines || 0)).padStart(6)}`,
@@ -67630,12 +67677,10 @@ async function run() {
       message.push('');
       message.push('```diff');
       message.push('@@ File Coverage Diff @@');
-      // Calculate the maximum width needed for the separator
+
       const maxWidth = Math.max(
-        // Header width
         `## File    ${baseBranch}    ${headBranch}    +/-  ##`.length,
-        // Content width (including padding)
-        ...changedFiles.map(({ filename }) => filename.length + 40) // 40 for the coverage numbers and spacing
+        ...changedFiles.map(({ filename }) => filename.length + 40)
       );
       const separator = '='.repeat(maxWidth);
 
@@ -67643,15 +67688,23 @@ async function run() {
       message.push(`## File    ${baseBranch}    ${headBranch}    +/-  ##`);
       message.push(separator);
 
-      // Sort files by absolute change amount
       changedFiles.sort((a, b) => Math.abs(b.change) - Math.abs(a.change));
 
-      changedFiles.forEach(({ filename, baseCov, headCov, change, isNew }) => {
+      changedFiles.forEach(({ filename, baseCov, headCov, change, isNew, missingLines }) => {
         const changeStr = change.toFixed(2);
         const emoji = change >= 0 ? '📈' : '📉';
-        const prefix = isNew ? '+ ' : change < 0 ? '- ' : '  ';
+        const prefix = isNew
+          ? '+ '
+          : (change < 0 || headCov < minCoverage)
+            ? '- '
+            : '  ';
+
         const line = `${prefix}${filename.padEnd(20)} ${baseCov.toFixed(2).padStart(6)}%   ${headCov.toFixed(2).padStart(6)}%   ${change >= 0 ? '+' : ''}${changeStr.padStart(6)}% ${emoji}`;
         message.push(line);
+
+        if (showMissingLines && missingLines) {
+          message.push(`   Missing lines: ${missingLines}`);
+        }
       });
 
       message.push(separator);
@@ -67899,17 +67952,41 @@ function getFilesWithCoverageChanges(baseCoverage, headCoverage) {
   const baseFiles = new Map();
   const headFiles = new Map();
 
-  // Helper to calculate file coverage
+  // Helper to calculate file coverage and get missing lines
   const calculateFileCoverage = (cls) => {
     if (!cls.lines?.[0]?.line) return null;
     const lines = cls.lines[0].line;
     const covered = lines.filter(line => parseInt(line.$.hits) > 0).length;
-    return (covered / lines.length) * 100;
+    const missingLines = lines
+      .filter(line => parseInt(line.$.hits) === 0)
+      .map(line => parseInt(line.$.number))
+      .sort((a, b) => a - b);
+
+    // Group consecutive numbers into ranges
+    const ranges = missingLines.reduce((acc, curr, i) => {
+      if (i === 0) {
+        acc.push([curr]);
+      } else if (curr === missingLines[i - 1] + 1) {
+        acc[acc.length - 1].push(curr);
+      } else {
+        acc.push([curr]);
+      }
+      return acc;
+    }, []);
+
+    // Format ranges as strings
+    const missingRanges = ranges.map(range =>
+      range.length === 1 ? `${range[0]}` : `${range[0]}-${range[range.length - 1]}`
+    ).join(', ');
+
+    return {
+      coverage: (covered / lines.length) * 100,
+      missingRanges
+    };
   };
 
   // Process base coverage
   if (baseCoverage.coverage.classes) {
-    // Python format
     baseCoverage.coverage.classes[0].class.forEach(cls => {
       const coverage = calculateFileCoverage(cls);
       if (coverage !== null) {
@@ -67917,7 +67994,6 @@ function getFilesWithCoverageChanges(baseCoverage, headCoverage) {
       }
     });
   } else if (baseCoverage.coverage.packages) {
-    // Java/JS format
     baseCoverage.coverage.packages[0].package.forEach(pkg => {
       pkg.classes?.[0]?.class.forEach(cls => {
         const coverage = calculateFileCoverage(cls);
@@ -67950,18 +68026,20 @@ function getFilesWithCoverageChanges(baseCoverage, headCoverage) {
   // Compare coverages
   const allFiles = new Set([...baseFiles.keys(), ...headFiles.keys()]);
   allFiles.forEach(filename => {
-    const baseCov = baseFiles.get(filename) || 0;
-    const headCov = headFiles.get(filename) || 0;
+    const baseCov = baseFiles.get(filename)?.coverage || 0;
+    const headCov = headFiles.get(filename)?.coverage || 0;
     const change = headCov - baseCov;
-    const isNew = !baseFiles.has(filename); // File is new if it's not in base coverage
+    const isNew = !baseFiles.has(filename);
+    const missingLines = headFiles.get(filename)?.missingRanges || '';
 
-    if (Math.abs(change) > 0.01 || isNew) { // Include if change is significant or file is new
+    if (Math.abs(change) > 0.01 || isNew) {
       changedFiles.push({
         filename,
         baseCov,
         headCov,
         change,
-        isNew
+        isNew,
+        missingLines
       });
     }
   });
