@@ -165,6 +165,32 @@ describe('Coverage Action', () => {
   });
 
   test('should handle missing coverage reports', async () => {
+    // Mock GitHub context
+    github.context = {
+      repo: {
+        owner: 'owner',
+        repo: 'repo'
+      },
+      payload: {
+        pull_request: {
+          number: 123
+        }
+      }
+    };
+
+    // Mock Octokit
+    const mockCreateComment = jest.fn();
+    const mockListComments = jest.fn().mockResolvedValue({ data: [] });
+    github.getOctokit = jest.fn().mockReturnValue({
+      rest: {
+        issues: {
+          createComment: mockCreateComment,
+          listComments: mockListComments
+        }
+      }
+    });
+
+    // Setup the Storage mock with empty file list
     Storage.mockImplementation(() => ({
       bucket: jest.fn().mockReturnValue({
         getFiles: jest.fn().mockResolvedValue([[]])
@@ -173,9 +199,21 @@ describe('Coverage Action', () => {
 
     await run();
 
-    expect(core.setFailed).toHaveBeenCalledWith(
-      expect.stringContaining('Could not find coverage reports')
-    );
+    // Verify the message was posted
+    expect(mockCreateComment).toHaveBeenCalledWith({
+      owner: 'owner',
+      repo: 'repo',
+      issue_number: 123,
+      body: expect.stringContaining('Both branches (main and feature-branch) have no available coverage reports')
+    });
+
+    // Verify it includes the bot marker
+    expect(mockCreateComment).toHaveBeenCalledWith({
+      owner: 'owner',
+      repo: 'repo',
+      issue_number: 123,
+      body: expect.stringContaining('<!-- Coverage Report Bot -->')
+    });
   });
 
   test('should calculate coverage differences correctly', async () => {
@@ -841,5 +879,63 @@ describe('Coverage Action', () => {
       // Should match format like "33-49" or "7-14, 29, 32, 43"
       expect(missingLines).toMatch(/^\d+(?:-\d+)?(?:, \d+(?:-\d+)?)*$/);
     }
+  });
+
+  test('should post message when coverage report is missing', async () => {
+    // Mock GitHub context
+    github.context = {
+      repo: {
+        owner: 'owner',
+        repo: 'repo'
+      },
+      payload: {
+        pull_request: {
+          number: 123
+        }
+      }
+    };
+
+    // Mock Octokit
+    const mockCreateComment = jest.fn();
+    const mockListComments = jest.fn().mockResolvedValue({ data: [] });
+    github.getOctokit = jest.fn().mockReturnValue({
+      rest: {
+        issues: {
+          createComment: mockCreateComment,
+          listComments: mockListComments
+        }
+      }
+    });
+
+    // Setup the Storage mock with no files for base branch
+    Storage.mockImplementation(() => ({
+      bucket: jest.fn().mockReturnValue({
+        getFiles: jest.fn().mockResolvedValue([[
+          // Only head branch has coverage
+          { name: 'repo/feature-branch/20240315_120000/coverage.xml' }
+        ]]),
+        file: jest.fn().mockReturnValue({
+          download: jest.fn()
+        })
+      })
+    }));
+
+    await run();
+
+    // Verify the error message was posted
+    expect(mockCreateComment).toHaveBeenCalledWith({
+      owner: 'owner',
+      repo: 'repo',
+      issue_number: 123,
+      body: expect.stringContaining('Branch main has no available coverage report')
+    });
+
+    // Verify it includes the bot marker
+    expect(mockCreateComment).toHaveBeenCalledWith({
+      owner: 'owner',
+      repo: 'repo',
+      issue_number: 123,
+      body: expect.stringContaining('<!-- Coverage Report Bot -->')
+    });
   });
 }); 

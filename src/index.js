@@ -49,7 +49,55 @@ async function run() {
     const headTimestamp = await getLatestTimestamp(bucket, headPath);
 
     if (!baseTimestamp || !headTimestamp) {
-      throw new Error('Could not find coverage reports for one or both branches');
+      // Create error message
+      const message = [
+        '<!-- Coverage Report Bot -->',
+        '⚠️ Coverage Report Status:',
+        '',
+        '```',
+        !baseTimestamp && !headTimestamp
+          ? `Both branches (${baseBranch} and ${headBranch}) have no available coverage reports. Coverage statistics cannot be calculated.`
+          : !baseTimestamp
+            ? `Branch ${baseBranch} has no available coverage report. Coverage statistics cannot be calculated.`
+            : `Branch ${headBranch} has no available coverage report. Coverage statistics cannot be calculated.`,
+        '```'
+      ].join('\n');
+
+      // Post message to PR
+      const octokit = github.getOctokit(githubToken);
+      const context = github.context;
+
+      // Search for existing comment
+      const comments = await octokit.rest.issues.listComments({
+        owner: context.repo.owner,
+        repo: context.repo.repo,
+        issue_number: context.payload.pull_request.number,
+      });
+
+      const botComment = comments.data.find(comment =>
+        comment.user.type === 'Bot' &&
+        comment.body.includes('<!-- Coverage Report Bot -->')
+      );
+
+      if (botComment) {
+        await octokit.rest.issues.updateComment({
+          owner: context.repo.owner,
+          repo: context.repo.repo,
+          comment_id: botComment.id,
+          body: message
+        });
+      } else {
+        await octokit.rest.issues.createComment({
+          owner: context.repo.owner,
+          repo: context.repo.repo,
+          issue_number: context.payload.pull_request.number,
+          body: message
+        });
+      }
+
+      // Log the message but don't fail the action
+      core.info('Posted coverage unavailability message to PR');
+      return;
     }
 
     core.info(`Found latest base coverage at timestamp: ${baseTimestamp}`);
