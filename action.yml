@@ -17,6 +17,10 @@ inputs:
   gcp_bucket:
     description: 'GCP bucket name where coverage reports are stored'
     required: true
+  show_missing_lines:
+    description: 'Show missing lines in coverage report'
+    required: false
+    default: 'false'
 
 runs:
   using: 'node16'

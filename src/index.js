@@ -15,6 +15,7 @@ async function run() {
     const minCoverage = parseFloat(core.getInput('min_coverage')) || 80;
     const githubToken = core.getInput('github_token', { required: true });
     const bucketName = core.getInput('gcp_bucket', { required: true });
+    const showMissingLines = core.getInput('show_missing_lines').toLowerCase() === 'true';
 
     // Parse GCP credentials
     let credentials;
@@ -193,7 +194,7 @@ async function run() {
         const line = `${prefix}${filename.padEnd(20)} ${baseCov.toFixed(2).padStart(6)}%   ${headCov.toFixed(2).padStart(6)}%   ${change >= 0 ? '+' : ''}${changeStr.padStart(6)}% ${emoji}`;
         message.push(line);
 
-        if (missingLines) {
+        if (showMissingLines && missingLines) {
           message.push(`   Missing lines: ${missingLines}`);
         }
       });
