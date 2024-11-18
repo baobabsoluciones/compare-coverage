@@ -782,4 +782,64 @@ describe('Coverage Action', () => {
       expect(commentBody).toMatch(new RegExp(`\\+ ${file.filename}`));
     });
   });
+
+  test('should include missing line numbers in coverage report', async () => {
+    const { baseCoverageXML, headCoverageXML } = loadTestData('python');
+
+    // Mock GitHub context
+    github.context = {
+      repo: {
+        owner: 'owner',
+        repo: 'repo'
+      },
+      payload: {
+        pull_request: {
+          number: 123
+        }
+      }
+    };
+
+    // Mock Octokit
+    const mockCreateComment = jest.fn();
+    const mockListComments = jest.fn().mockResolvedValue({ data: [] });
+    github.getOctokit = jest.fn().mockReturnValue({
+      rest: {
+        issues: {
+          createComment: mockCreateComment,
+          listComments: mockListComments
+        }
+      }
+    });
+
+    // Setup the Storage mock
+    Storage.mockImplementation(() => ({
+      bucket: jest.fn().mockReturnValue({
+        getFiles: jest.fn().mockResolvedValue([[
+          { name: 'repo/main/20240315_120000/coverage.xml' },
+          { name: 'repo/feature-branch/20240315_120000/coverage.xml' }
+        ]]),
+        file: jest.fn().mockReturnValue({
+          download: jest.fn()
+            .mockResolvedValueOnce([baseCoverageXML])
+            .mockResolvedValueOnce([headCoverageXML])
+        })
+      })
+    }));
+
+    await run();
+
+    // Get the comment body
+    const commentBody = mockCreateComment.mock.calls[0][0].body;
+
+    // Verify that missing lines are included in the report
+    expect(commentBody).toMatch(/Missing lines: \d+(?:-\d+)?(?:, \d+(?:-\d+)?)*$/m);
+
+    // Verify the format of missing lines (should be either single numbers or ranges)
+    const missingLinesMatch = commentBody.match(/Missing lines: ([\d\-, ]+)/);
+    if (missingLinesMatch) {
+      const missingLines = missingLinesMatch[1];
+      // Should match format like "33-49" or "7-14, 29, 32, 43"
+      expect(missingLines).toMatch(/^\d+(?:-\d+)?(?:, \d+(?:-\d+)?)*$/);
+    }
+  });
 }); 
