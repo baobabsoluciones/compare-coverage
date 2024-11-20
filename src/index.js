@@ -157,7 +157,7 @@ async function run() {
       '@@ Coverage Diff @@',
       `## ${baseBranch}    #${headBranch}    +/-  ##`,
       '===========================================',
-      `${coverageDiff >= 0 ? (headPercent < minCoverage ? '-' : ' ') : '-'} Coverage    ${basePercent.padStart(6)}%   ${headPercent.padStart(6)}%   ${coverageDiffPercent.padStart(6)}% ${coverageDiff >= 0 ? '📈' : '📉'}`,
+      `${coverageDiff < 0 ? '-' : (headPercent < minCoverage ? '-' : ' ')} Coverage    ${basePercent.padStart(6)}%   ${headPercent.padStart(6)}%   ${coverageDiffPercent.padStart(6)}% ${coverageDiff >= 0 ? '📈' : '📉'}`,
       '===========================================',
       `  Files        ${String(countFiles(baseCoverage)).padStart(6)}    ${String(countFiles(headCoverage)).padStart(6)}    ${String(countFiles(headCoverage) - countFiles(baseCoverage)).padStart(6)}`,
       `  Lines        ${String(baseMetrics.lines || 0).padStart(6)}    ${String(headMetrics.lines || 0).padStart(6)}    ${String((headMetrics.lines || 0) - (baseMetrics.lines || 0)).padStart(6)}`,
