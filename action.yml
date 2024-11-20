@@ -1,4 +1,4 @@
-name: 'Coverage Comparison Action'
+name: 'Downlaod coverage from GCS and compare'
 description: 'Compare code coverage between base and head branches using coverage reports from Google Cloud Storage'
 author: 'baobab soluciones'
 
@@ -27,5 +27,5 @@ runs:
   main: 'dist/index.js'
 
 branding:
-  icon: 'percent'
-  color: 'green'
+  icon: 'check-square'
+  color: 'orange'
