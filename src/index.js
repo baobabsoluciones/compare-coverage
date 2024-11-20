@@ -7,6 +7,7 @@ const core = require('@actions/core');
 const github = require('@actions/github');
 const { Storage } = require('@google-cloud/storage');
 const xml2js = require('xml2js');
+const path = require('path');
 
 async function run() {
   try {
@@ -16,6 +17,10 @@ async function run() {
     const githubToken = core.getInput('github_token', { required: true });
     const bucketName = core.getInput('gcp_bucket', { required: true });
     const showMissingLines = core.getInput('show_missing_lines').toLowerCase() === 'true';
+
+    // Initialize GitHub API client early
+    const octokit = github.getOctokit(githubToken);
+    const context = github.context;
 
     // Parse GCP credentials
     let credentials;
@@ -64,11 +69,7 @@ async function run() {
         '```'
       ].join('\n');
 
-      // Post message to PR
-      const octokit = github.getOctokit(githubToken);
-      const context = github.context;
-
-      // Search for existing comment
+      // Post message to PR (reuse existing octokit)
       const comments = await octokit.rest.issues.listComments({
         owner: context.repo.owner,
         repo: context.repo.repo,
@@ -139,6 +140,14 @@ async function run() {
     // Calculate new lines covered in head
     const newLinesCovered = calculateNewLinesCovered(baseCoverage, headCoverage);
 
+    // Get PR changed files (using existing octokit)
+    const prChangedFiles = await getPRChangedFiles(octokit, context);
+    console.log('PR Changed Files:', prChangedFiles);
+
+    // Get files with coverage changes
+    const changedFiles = getFilesWithCoverageChanges(baseCoverage, headCoverage, prChangedFiles);
+    console.log('Changed Files:', changedFiles);
+
     // Create PR comment message with diff-style format
     const message = [
       '<!-- Coverage Report Bot -->',
@@ -160,9 +169,6 @@ async function run() {
       '```',
       ''
     ];
-
-    // Get files with coverage changes
-    const changedFiles = getFilesWithCoverageChanges(baseCoverage, headCoverage);
 
     if (changedFiles.length > 0) {
       message.push('The main files with changes are:');
@@ -205,11 +211,7 @@ async function run() {
 
     const finalMessage = message.join('\n');
 
-    // Post or update comment to PR
-    const octokit = github.getOctokit(githubToken);
-    const context = github.context;
-
-    // Search for existing comment
+    // Search for existing comment (reuse existing octokit)
     const comments = await octokit.rest.issues.listComments({
       owner: context.repo.owner,
       repo: context.repo.repo,
@@ -246,6 +248,11 @@ async function run() {
     // Log the results
     core.info(`Coverage difference: ${coverageDiffPercent}% (${coverageDiff >= 0 ? 'increased' : 'decreased'})`);
     core.info(`New lines covered in head: ${newLinesCovered}`);
+
+    // If coverage is below minimum, set action status to failed
+    if (headPercent < minCoverage) {
+      core.setFailed(`Coverage ${headPercent}% is below minimum required ${minCoverage}%`);
+    }
 
   } catch (error) {
     core.setFailed(error.message);
@@ -439,7 +446,7 @@ function printFileStatistics(coverage) {
   }
 }
 
-function getFilesWithCoverageChanges(baseCoverage, headCoverage) {
+function getFilesWithCoverageChanges(baseCoverage, headCoverage, prChangedFiles = []) {
   const changedFiles = [];
   const baseFiles = new Map();
   const headFiles = new Map();
@@ -536,6 +543,24 @@ function getFilesWithCoverageChanges(baseCoverage, headCoverage) {
     }
   });
 
+  prChangedFiles.forEach(({ filename }) => {
+    // Only process source code files
+    if (filename.match(/\.(py|js|java|jsx|ts|tsx)$/)) {
+      // If file isn't in either coverage report but was changed in PR
+      if (!baseFiles.has(filename) && !headFiles.has(filename)) {
+        changedFiles.push({
+          filename,
+          baseCov: 0,
+          headCov: 0,
+          change: 0,
+          isNew: true,
+          missingLines: 'No coverage data',
+          uncovered: true
+        });
+      }
+    }
+  });
+
   return changedFiles;
 }
 
@@ -559,6 +584,24 @@ function countFiles(coverage) {
     });
   }
   return count;
+}
+
+async function getPRChangedFiles(octokit, context) {
+  try {
+    const response = await octokit.rest.pulls.listFiles({
+      owner: context.repo.owner,
+      repo: context.repo.repo,
+      pull_number: context.payload.pull_request.number,
+    });
+
+    return response.data.map(file => ({
+      filename: file.filename,
+      status: file.status
+    }));
+  } catch (error) {
+    core.warning(`Failed to fetch PR changed files: ${error.message}`);
+    return [];
+  }
 }
 
 module.exports = { run };
