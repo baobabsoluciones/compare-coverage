@@ -12,6 +12,7 @@ A GitHub Action that compares code coverage between branches by analyzing covera
 - Optional display of uncovered line ranges
 - Fails the check if coverage falls below minimum threshold
 - Tracks new files and coverage changes in PR-modified files
+- Intelligently handles path prefixes (e.g., `python_coverage/`) to match files between PR changes and coverage reports
 
 ## Usage
 
@@ -87,6 +88,22 @@ bucket/
         └── timestamp/
             └── coverage.xml
 ```
+
+### Path Handling
+
+The action automatically normalizes paths between PR changes and coverage reports. For example, if your PR shows changes in:
+
+```
+python_coverage/module/example.py
+```
+
+But your coverage report has paths like:
+
+```
+module/example.py
+```
+
+The action will automatically match these files by removing common prefixes (like `python_coverage/`). This ensures accurate coverage tracking regardless of path differences between your PR and coverage reports.
 
 ## Output Example
 

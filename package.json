@@ -1,6 +1,6 @@
 {
   "name": "coverage-action",
-  "version": "0.0.12",
+  "version": "0.0.13",
   "description": "Test repo to create a custom github action for checking the coverage for PR",
   "main": "index.js",
   "scripts": {
