@@ -157,15 +157,15 @@ async function run() {
       '@@ Coverage Diff @@',
       `## ${baseBranch}    #${headBranch}    +/-  ##`,
       '===========================================',
-      `${coverageDiff < 0 ? '-' : (headPercent < minCoverage ? '-' : ' ')} Coverage    ${basePercent.padStart(6)}%   ${headPercent.padStart(6)}%   ${coverageDiffPercent.padStart(6)}% ${coverageDiff >= 0 ? '📈' : '📉'}`,
+      `${coverageDiff < 0 ? '-' : (headPercent < minCoverage ? '-' : '+')} Coverage    ${basePercent.padStart(6)}%   ${headPercent.padStart(6)}%   ${coverageDiffPercent.padStart(6)}%`,
       '===========================================',
-      `  Files        ${String(countFiles(baseCoverage)).padStart(6)}    ${String(countFiles(headCoverage)).padStart(6)}    ${String(countFiles(headCoverage) - countFiles(baseCoverage)).padStart(6)}`,
-      `  Lines        ${String(baseMetrics.lines || 0).padStart(6)}    ${String(headMetrics.lines || 0).padStart(6)}    ${String((headMetrics.lines || 0) - (baseMetrics.lines || 0)).padStart(6)}`,
-      `  Branches     ${String(baseMetrics.branches || 0).padStart(6)}    ${String(headMetrics.branches || 0).padStart(6)}    ${String((headMetrics.branches || 0) - (baseMetrics.branches || 0)).padStart(6)}`,
+      `${countFiles(headCoverage) > countFiles(baseCoverage) ? '+' : ' '} Files        ${String(countFiles(baseCoverage)).padStart(6)}    ${String(countFiles(headCoverage)).padStart(6)}    ${String(countFiles(headCoverage) - countFiles(baseCoverage)).padStart(6)}`,
+      `${headMetrics.lines > baseMetrics.lines ? '+' : ' '} Lines        ${String(baseMetrics.lines || 0).padStart(6)}    ${String(headMetrics.lines || 0).padStart(6)}    ${String((headMetrics.lines || 0) - (baseMetrics.lines || 0)).padStart(6)}`,
+      `${headMetrics.branches > baseMetrics.branches ? '+' : ' '} Branches     ${String(baseMetrics.branches || 0).padStart(6)}    ${String(headMetrics.branches || 0).padStart(6)}    ${String((headMetrics.branches || 0) - (baseMetrics.branches || 0)).padStart(6)}`,
       '===========================================',
-      `  Hits         ${String(baseMetrics.hits || 0).padStart(6)}    ${String(headMetrics.hits || 0).padStart(6)}    ${String((headMetrics.hits || 0) - (baseMetrics.hits || 0)).padStart(6)} 📈`,
-      `${headMetrics.misses > baseMetrics.misses ? '-' : ' '} Misses       ${String(baseMetrics.misses || 0).padStart(6)}    ${String(headMetrics.misses || 0).padStart(6)}    ${String((headMetrics.misses || 0) - (baseMetrics.misses || 0)).padStart(6)} ${(headMetrics.misses || 0) <= (baseMetrics.misses || 0) ? '📈' : '📉'}`,
-      `  Partials     ${String(baseMetrics.partials || 0).padStart(6)}    ${String(headMetrics.partials || 0).padStart(6)}    ${String((headMetrics.partials || 0) - (baseMetrics.partials || 0)).padStart(6)} ${(headMetrics.partials || 0) <= (baseMetrics.partials || 0) ? '📈' : '📉'}`,
+      `${headMetrics.hits > baseMetrics.hits ? '+' : ' '} Hits         ${String(baseMetrics.hits || 0).padStart(6)}    ${String(headMetrics.hits || 0).padStart(6)}    ${String((headMetrics.hits || 0) - (baseMetrics.hits || 0)).padStart(6)}`,
+      `${headMetrics.misses > baseMetrics.misses ? '-' : (headMetrics.misses < baseMetrics.misses ? '+' : ' ')} Misses       ${String(baseMetrics.misses || 0).padStart(6)}    ${String(headMetrics.misses || 0).padStart(6)}    ${String((headMetrics.misses || 0) - (baseMetrics.misses || 0)).padStart(6)}`,
+      `${headMetrics.partials > baseMetrics.partials ? '-' : (headMetrics.partials < baseMetrics.partials ? '+' : ' ')} Partials     ${String(baseMetrics.partials || 0).padStart(6)}    ${String(headMetrics.partials || 0).padStart(6)}    ${String((headMetrics.partials || 0) - (baseMetrics.partials || 0)).padStart(6)}`,
       '```',
       ''
     ];
@@ -190,14 +190,13 @@ async function run() {
 
       changedFiles.forEach(({ filename, baseCov, headCov, change, isNew, missingLines }) => {
         const changeStr = change.toFixed(2);
-        const emoji = change >= 0 ? '📈' : '📉';
         const prefix = isNew
           ? '+ '
           : (change < 0 || headCov < minCoverage)
             ? '- '
-            : '  ';
+            : '+ ';
 
-        const line = `${prefix}${filename.padEnd(20)} ${baseCov.toFixed(2).padStart(6)}%   ${headCov.toFixed(2).padStart(6)}%   ${change >= 0 ? '+' : ''}${changeStr.padStart(6)}% ${emoji}`;
+        const line = `${prefix}${filename.padEnd(20)} ${baseCov.toFixed(2).padStart(6)}%   ${headCov.toFixed(2).padStart(6)}%   ${change >= 0 ? '+' : ''}${changeStr.padStart(6)}%`;
         message.push(line);
 
         if (showMissingLines && missingLines) {
