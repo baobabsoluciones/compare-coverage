@@ -145,7 +145,7 @@ async function run() {
     console.log('PR Changed Files:', prChangedFiles);
 
     // Get files with coverage changes
-    const changedFiles = getFilesWithCoverageChanges(baseCoverage, headCoverage, prChangedFiles);
+    const { changedFiles, uncoveredFiles } = getFilesWithCoverageChanges(baseCoverage, headCoverage, prChangedFiles);
     console.log('Changed Files:', changedFiles);
 
     // Create PR comment message with diff-style format
@@ -207,6 +207,15 @@ async function run() {
 
       message.push(separator);
       message.push('```');
+    }
+
+    // Add uncovered files section if there are any
+    if (uncoveredFiles.length > 0) {
+      message.push('');
+      message.push('The following files do not have coverage information on any branch:');
+      uncoveredFiles.forEach(file => {
+        message.push(`- ${file}`);
+      });
     }
 
     const finalMessage = message.join('\n');
@@ -450,6 +459,7 @@ function getFilesWithCoverageChanges(baseCoverage, headCoverage, prChangedFiles 
   const changedFiles = [];
   const baseFiles = new Map();
   const headFiles = new Map();
+  const uncoveredFiles = [];
 
   // Helper to normalize file paths by removing python_coverage prefix
   const normalizePath = (path) => {
@@ -548,26 +558,19 @@ function getFilesWithCoverageChanges(baseCoverage, headCoverage, prChangedFiles 
     }
   });
 
+  // Process PR changed files
   prChangedFiles.forEach(({ filename }) => {
     // Only process source code files
     if (filename.match(/\.(py|js|java|jsx|ts|tsx)$/)) {
       const normalizedFilename = normalizePath(filename);
       // If file isn't in either coverage report but was changed in PR
       if (!baseFiles.has(normalizedFilename) && !headFiles.has(normalizedFilename)) {
-        changedFiles.push({
-          filename: normalizedFilename,
-          baseCov: 0,
-          headCov: 0,
-          change: 0,
-          isNew: true,
-          missingLines: 'No coverage data',
-          uncovered: true
-        });
+        uncoveredFiles.push(normalizedFilename);
       }
     }
   });
 
-  return changedFiles;
+  return { changedFiles, uncoveredFiles };
 }
 
 function countFiles(coverage) {

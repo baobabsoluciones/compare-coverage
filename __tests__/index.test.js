@@ -1170,7 +1170,8 @@ describe('Coverage Action', () => {
     // Mock PR changed files with python_coverage prefix
     const mockListFiles = jest.fn().mockResolvedValue({
       data: [
-        { filename: 'python_coverage/module/example.py', status: 'modified' }
+        { filename: 'python_coverage/module/example.py', status: 'modified' },
+        { filename: 'python_coverage/module/uncovered.py', status: 'added' }
       ]
     });
 
@@ -1222,7 +1223,9 @@ describe('Coverage Action', () => {
     expect(commentBody).not.toMatch(/python_coverage\/module\/example\.py/);
     // Verify the overall coverage change
     expect(commentBody).toMatch(/Coverage\s+50\.00%\s+100\.00%\s+50\.00%/);
-    // Verify the file-specific coverage change
-    expect(commentBody).toMatch(/module\/example\.py\s+50\.00%\s+100\.00%\s+\+\s50\.00%/);
+    // Verify uncovered files section
+    expect(commentBody).toMatch(/The following files do not have coverage information on any branch:/);
+    expect(commentBody).toMatch(/- module\/uncovered\.py/);
+    expect(commentBody).not.toMatch(/python_coverage\/module\/uncovered\.py/);
   });
 }); 
