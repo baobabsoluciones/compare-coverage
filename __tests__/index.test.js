@@ -1107,4 +1107,122 @@ describe('Coverage Action', () => {
     commentBody = mockCreateComment.mock.calls[0][0].body;
     expect(commentBody).toMatch(/Missing lines:/);
   });
+
+  test('should handle files with python_coverage prefix', async () => {
+    // Mock inputs
+    process.env.INPUT_GCP_CREDENTIALS = JSON.stringify({
+      type: 'service_account',
+      project_id: 'test-project',
+      private_key: 'test-key',
+      client_email: 'test@test.com'
+    });
+    process.env.INPUT_MIN_COVERAGE = '80';
+    process.env.INPUT_GITHUB_TOKEN = 'fake-token';
+    process.env.INPUT_GCP_BUCKET = 'test-bucket';
+    process.env.INPUT_SHOW_MISSING_LINES = 'true';
+
+    // Mock GitHub context
+    github.context = {
+      repo: {
+        owner: 'owner',
+        repo: 'repo'
+      },
+      payload: {
+        pull_request: {
+          number: 123
+        }
+      }
+    };
+
+    // Mock coverage data with proper structure and different coverage values
+    const baseCoverageXML = `<?xml version="1.0" encoding="UTF-8"?>
+      <coverage line-rate="0.5" branch-rate="1.0" lines-covered="1" lines-valid="2" timestamp="1234567890">
+        <packages>
+          <package name="module">
+            <classes>
+              <class name="example" filename="module/example.py">
+                <lines>
+                  <line number="1" hits="1"/>
+                  <line number="2" hits="0"/>
+                </lines>
+              </class>
+            </classes>
+          </package>
+        </packages>
+      </coverage>`;
+
+    const headCoverageXML = `<?xml version="1.0" encoding="UTF-8"?>
+      <coverage line-rate="1.0" branch-rate="1.0" lines-covered="2" lines-valid="2" timestamp="1234567890">
+        <packages>
+          <package name="module">
+            <classes>
+              <class name="example" filename="module/example.py">
+                <lines>
+                  <line number="1" hits="1"/>
+                  <line number="2" hits="1"/>
+                </lines>
+              </class>
+            </classes>
+          </package>
+        </packages>
+      </coverage>`;
+
+    // Mock PR changed files with python_coverage prefix
+    const mockListFiles = jest.fn().mockResolvedValue({
+      data: [
+        { filename: 'python_coverage/module/example.py', status: 'modified' }
+      ]
+    });
+
+    // Mock Octokit
+    const mockCreateComment = jest.fn();
+    const mockListComments = jest.fn().mockResolvedValue({ data: [] });
+    github.getOctokit = jest.fn().mockReturnValue({
+      rest: {
+        pulls: {
+          listFiles: mockListFiles
+        },
+        issues: {
+          createComment: mockCreateComment,
+          listComments: mockListComments
+        }
+      }
+    });
+
+    // Setup the Storage mock with proper file structure
+    Storage.mockImplementation(() => ({
+      bucket: jest.fn().mockReturnValue({
+        getFiles: jest.fn().mockImplementation(async ({ prefix }) => {
+          if (prefix.includes('main')) {
+            return [[{ name: 'repo/main/20240315_120000/coverage.xml' }]];
+          }
+          if (prefix.includes('feature')) {
+            return [[{ name: 'repo/feature/20240315_120000/coverage.xml' }]];
+          }
+          return [[]];
+        }),
+        file: jest.fn().mockReturnValue({
+          download: jest.fn()
+            .mockResolvedValueOnce([baseCoverageXML])
+            .mockResolvedValueOnce([headCoverageXML])
+        })
+      })
+    }));
+
+    // Set required environment variables
+    process.env.GITHUB_BASE_REF = 'main';
+    process.env.GITHUB_HEAD_REF = 'feature';
+    process.env.GITHUB_REPOSITORY = 'owner/repo';
+
+    await run();
+
+    // Verify that the file was correctly matched despite the prefix difference
+    const commentBody = mockCreateComment.mock.calls[0][0].body;
+    expect(commentBody).toMatch(/module\/example\.py/);
+    expect(commentBody).not.toMatch(/python_coverage\/module\/example\.py/);
+    // Verify the overall coverage change
+    expect(commentBody).toMatch(/Coverage\s+50\.00%\s+100\.00%\s+50\.00%/);
+    // Verify the file-specific coverage change
+    expect(commentBody).toMatch(/module\/example\.py\s+50\.00%\s+100\.00%\s+\+\s50\.00%/);
+  });
 }); 

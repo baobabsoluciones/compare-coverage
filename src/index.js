@@ -451,6 +451,11 @@ function getFilesWithCoverageChanges(baseCoverage, headCoverage, prChangedFiles 
   const baseFiles = new Map();
   const headFiles = new Map();
 
+  // Helper to normalize file paths by removing python_coverage prefix
+  const normalizePath = (path) => {
+    return path.replace(/^python_coverage\//, '');
+  };
+
   // Helper to calculate file coverage and get missing lines
   const calculateFileCoverage = (cls) => {
     if (!cls.lines?.[0]?.line) return null;
@@ -489,7 +494,7 @@ function getFilesWithCoverageChanges(baseCoverage, headCoverage, prChangedFiles 
     baseCoverage.coverage.classes[0].class.forEach(cls => {
       const coverage = calculateFileCoverage(cls);
       if (coverage !== null) {
-        baseFiles.set(cls.$.filename, coverage);
+        baseFiles.set(normalizePath(cls.$.filename), coverage);
       }
     });
   } else if (baseCoverage.coverage.packages) {
@@ -497,7 +502,7 @@ function getFilesWithCoverageChanges(baseCoverage, headCoverage, prChangedFiles 
       pkg.classes?.[0]?.class.forEach(cls => {
         const coverage = calculateFileCoverage(cls);
         if (coverage !== null) {
-          baseFiles.set(cls.$.filename, coverage);
+          baseFiles.set(normalizePath(cls.$.filename), coverage);
         }
       });
     });
@@ -508,7 +513,7 @@ function getFilesWithCoverageChanges(baseCoverage, headCoverage, prChangedFiles 
     headCoverage.coverage.classes[0].class.forEach(cls => {
       const coverage = calculateFileCoverage(cls);
       if (coverage !== null) {
-        headFiles.set(cls.$.filename, coverage);
+        headFiles.set(normalizePath(cls.$.filename), coverage);
       }
     });
   } else if (headCoverage.coverage.packages) {
@@ -516,7 +521,7 @@ function getFilesWithCoverageChanges(baseCoverage, headCoverage, prChangedFiles 
       pkg.classes?.[0]?.class.forEach(cls => {
         const coverage = calculateFileCoverage(cls);
         if (coverage !== null) {
-          headFiles.set(cls.$.filename, coverage);
+          headFiles.set(normalizePath(cls.$.filename), coverage);
         }
       });
     });
@@ -546,10 +551,11 @@ function getFilesWithCoverageChanges(baseCoverage, headCoverage, prChangedFiles 
   prChangedFiles.forEach(({ filename }) => {
     // Only process source code files
     if (filename.match(/\.(py|js|java|jsx|ts|tsx)$/)) {
+      const normalizedFilename = normalizePath(filename);
       // If file isn't in either coverage report but was changed in PR
-      if (!baseFiles.has(filename) && !headFiles.has(filename)) {
+      if (!baseFiles.has(normalizedFilename) && !headFiles.has(normalizedFilename)) {
         changedFiles.push({
-          filename,
+          filename: normalizedFilename,
           baseCov: 0,
           headCov: 0,
           change: 0,
