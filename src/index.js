@@ -1,7 +1,7 @@
 /**
  * GitHub Action for comparing code coverage between branches
  * Supports Java, JavaScript, and Python coverage formats
- * Version: 0.0.12
+ * Version: 0.0.13
  */
 const core = require('@actions/core');
 const github = require('@actions/github');
@@ -145,7 +145,7 @@ async function run() {
     console.log('PR Changed Files:', prChangedFiles);
 
     // Get files with coverage changes
-    const changedFiles = getFilesWithCoverageChanges(baseCoverage, headCoverage, prChangedFiles);
+    const { changedFiles, uncoveredFiles } = getFilesWithCoverageChanges(baseCoverage, headCoverage, prChangedFiles);
     console.log('Changed Files:', changedFiles);
 
     // Create PR comment message with diff-style format
@@ -157,15 +157,15 @@ async function run() {
       '@@ Coverage Diff @@',
       `## ${baseBranch}    #${headBranch}    +/-  ##`,
       '===========================================',
-      `${coverageDiff < 0 ? '-' : (headPercent < minCoverage ? '-' : ' ')} Coverage    ${basePercent.padStart(6)}%   ${headPercent.padStart(6)}%   ${coverageDiffPercent.padStart(6)}% ${coverageDiff >= 0 ? '📈' : '📉'}`,
+      `${coverageDiff < 0 ? '-' : (headPercent < minCoverage ? '-' : '+')} Coverage    ${basePercent.padStart(6)}%   ${headPercent.padStart(6)}%   ${coverageDiffPercent.padStart(6)}%`,
       '===========================================',
       `  Files        ${String(countFiles(baseCoverage)).padStart(6)}    ${String(countFiles(headCoverage)).padStart(6)}    ${String(countFiles(headCoverage) - countFiles(baseCoverage)).padStart(6)}`,
       `  Lines        ${String(baseMetrics.lines || 0).padStart(6)}    ${String(headMetrics.lines || 0).padStart(6)}    ${String((headMetrics.lines || 0) - (baseMetrics.lines || 0)).padStart(6)}`,
       `  Branches     ${String(baseMetrics.branches || 0).padStart(6)}    ${String(headMetrics.branches || 0).padStart(6)}    ${String((headMetrics.branches || 0) - (baseMetrics.branches || 0)).padStart(6)}`,
       '===========================================',
-      `  Hits         ${String(baseMetrics.hits || 0).padStart(6)}    ${String(headMetrics.hits || 0).padStart(6)}    ${String((headMetrics.hits || 0) - (baseMetrics.hits || 0)).padStart(6)} 📈`,
-      `${headMetrics.misses > baseMetrics.misses ? '-' : ' '} Misses       ${String(baseMetrics.misses || 0).padStart(6)}    ${String(headMetrics.misses || 0).padStart(6)}    ${String((headMetrics.misses || 0) - (baseMetrics.misses || 0)).padStart(6)} ${(headMetrics.misses || 0) <= (baseMetrics.misses || 0) ? '📈' : '📉'}`,
-      `  Partials     ${String(baseMetrics.partials || 0).padStart(6)}    ${String(headMetrics.partials || 0).padStart(6)}    ${String((headMetrics.partials || 0) - (baseMetrics.partials || 0)).padStart(6)} ${(headMetrics.partials || 0) <= (baseMetrics.partials || 0) ? '📈' : '📉'}`,
+      `${headMetrics.hits > baseMetrics.hits ? '+' : ' '} Hits         ${String(baseMetrics.hits || 0).padStart(6)}    ${String(headMetrics.hits || 0).padStart(6)}    ${String((headMetrics.hits || 0) - (baseMetrics.hits || 0)).padStart(6)}`,
+      `${headMetrics.misses > baseMetrics.misses ? '-' : (headMetrics.misses < baseMetrics.misses ? '+' : ' ')} Misses       ${String(baseMetrics.misses || 0).padStart(6)}    ${String(headMetrics.misses || 0).padStart(6)}    ${String((headMetrics.misses || 0) - (baseMetrics.misses || 0)).padStart(6)}`,
+      `${headMetrics.partials > baseMetrics.partials ? '-' : (headMetrics.partials < baseMetrics.partials ? '+' : ' ')} Partials     ${String(baseMetrics.partials || 0).padStart(6)}    ${String(headMetrics.partials || 0).padStart(6)}    ${String((headMetrics.partials || 0) - (baseMetrics.partials || 0)).padStart(6)}`,
       '```',
       ''
     ];
@@ -190,14 +190,13 @@ async function run() {
 
       changedFiles.forEach(({ filename, baseCov, headCov, change, isNew, missingLines }) => {
         const changeStr = change.toFixed(2);
-        const emoji = change >= 0 ? '📈' : '📉';
         const prefix = isNew
           ? '+ '
           : (change < 0 || headCov < minCoverage)
             ? '- '
-            : '  ';
+            : '+ ';
 
-        const line = `${prefix}${filename.padEnd(20)} ${baseCov.toFixed(2).padStart(6)}%   ${headCov.toFixed(2).padStart(6)}%   ${change >= 0 ? '+' : ''}${changeStr.padStart(6)}% ${emoji}`;
+        const line = `${prefix}${filename.padEnd(20)} ${baseCov.toFixed(2).padStart(6)}%   ${headCov.toFixed(2).padStart(6)}%   ${change >= 0 ? '+' : ''}${changeStr.padStart(6)}%`;
         message.push(line);
 
         if (showMissingLines && missingLines) {
@@ -207,6 +206,15 @@ async function run() {
 
       message.push(separator);
       message.push('```');
+    }
+
+    // Add uncovered files section if there are any
+    if (uncoveredFiles.length > 0) {
+      message.push('');
+      message.push('The following files do not have coverage information on any branch:');
+      uncoveredFiles.forEach(file => {
+        message.push(`- ${file}`);
+      });
     }
 
     const finalMessage = message.join('\n');
@@ -450,6 +458,12 @@ function getFilesWithCoverageChanges(baseCoverage, headCoverage, prChangedFiles 
   const changedFiles = [];
   const baseFiles = new Map();
   const headFiles = new Map();
+  const uncoveredFiles = [];
+
+  // Helper to normalize file paths by removing python_coverage prefix
+  const normalizePath = (path) => {
+    return path.replace(/^python_coverage\//, '');
+  };
 
   // Helper to calculate file coverage and get missing lines
   const calculateFileCoverage = (cls) => {
@@ -489,7 +503,7 @@ function getFilesWithCoverageChanges(baseCoverage, headCoverage, prChangedFiles 
     baseCoverage.coverage.classes[0].class.forEach(cls => {
       const coverage = calculateFileCoverage(cls);
       if (coverage !== null) {
-        baseFiles.set(cls.$.filename, coverage);
+        baseFiles.set(normalizePath(cls.$.filename), coverage);
       }
     });
   } else if (baseCoverage.coverage.packages) {
@@ -497,7 +511,7 @@ function getFilesWithCoverageChanges(baseCoverage, headCoverage, prChangedFiles 
       pkg.classes?.[0]?.class.forEach(cls => {
         const coverage = calculateFileCoverage(cls);
         if (coverage !== null) {
-          baseFiles.set(cls.$.filename, coverage);
+          baseFiles.set(normalizePath(cls.$.filename), coverage);
         }
       });
     });
@@ -508,7 +522,7 @@ function getFilesWithCoverageChanges(baseCoverage, headCoverage, prChangedFiles 
     headCoverage.coverage.classes[0].class.forEach(cls => {
       const coverage = calculateFileCoverage(cls);
       if (coverage !== null) {
-        headFiles.set(cls.$.filename, coverage);
+        headFiles.set(normalizePath(cls.$.filename), coverage);
       }
     });
   } else if (headCoverage.coverage.packages) {
@@ -516,7 +530,7 @@ function getFilesWithCoverageChanges(baseCoverage, headCoverage, prChangedFiles 
       pkg.classes?.[0]?.class.forEach(cls => {
         const coverage = calculateFileCoverage(cls);
         if (coverage !== null) {
-          headFiles.set(cls.$.filename, coverage);
+          headFiles.set(normalizePath(cls.$.filename), coverage);
         }
       });
     });
@@ -543,25 +557,19 @@ function getFilesWithCoverageChanges(baseCoverage, headCoverage, prChangedFiles 
     }
   });
 
+  // Process PR changed files
   prChangedFiles.forEach(({ filename }) => {
     // Only process source code files
     if (filename.match(/\.(py|js|java|jsx|ts|tsx)$/)) {
+      const normalizedFilename = normalizePath(filename);
       // If file isn't in either coverage report but was changed in PR
-      if (!baseFiles.has(filename) && !headFiles.has(filename)) {
-        changedFiles.push({
-          filename,
-          baseCov: 0,
-          headCov: 0,
-          change: 0,
-          isNew: true,
-          missingLines: 'No coverage data',
-          uncovered: true
-        });
+      if (!baseFiles.has(normalizedFilename) && !headFiles.has(normalizedFilename)) {
+        uncoveredFiles.push(normalizedFilename);
       }
     }
   });
 
-  return changedFiles;
+  return { changedFiles, uncoveredFiles };
 }
 
 function countFiles(coverage) {

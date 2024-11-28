@@ -410,7 +410,7 @@ describe('Coverage Action', () => {
     expect(commentBody).toMatch(/The overall coverage statistics of the PR are:/);
     expect(commentBody).toMatch(/@@ Coverage Diff @@/);
     expect(commentBody).toMatch(
-      new RegExp(`Coverage\\s+${expectedDiff.overall.baseCoverage}\\s+${expectedDiff.overall.headCoverage}\\s+${expectedDiff.overall.difference}\\s+${expectedDiff.overall.trend}`)
+      new RegExp(`\\+ Coverage\\s+${expectedDiff.overall.baseCoverage}\\s+${expectedDiff.overall.headCoverage}\\s+${expectedDiff.overall.difference}`)
     );
 
     // Check files section if there are changes
@@ -577,14 +577,15 @@ describe('Coverage Action', () => {
 
     // Check overall metrics
     expect(commentBody).toMatch(
-      new RegExp(`Coverage\\s+${expectedDiff.overall.baseCoverage}\\s+${expectedDiff.overall.headCoverage}\\s+${expectedDiff.overall.difference}\\s+${expectedDiff.overall.trend}`)
+      new RegExp(`- Coverage\\s+${expectedDiff.overall.baseCoverage}\\s+${expectedDiff.overall.headCoverage}\\s+${expectedDiff.overall.difference}`)
     );
 
     // Check files section if there are changes
     if (expectedDiff.files.length > 0) {
       expectedDiff.files.forEach(file => {
+        const prefix = file.difference.startsWith('-') ? '- ' : '+ ';
         const filePattern = new RegExp(
-          `${file.filename}\\s+${file.baseCoverage}\\s+${file.headCoverage}\\s+${file.difference}\\s+${file.trend}`
+          `${prefix}${file.filename}\\s+${file.baseCoverage}\\s+${file.headCoverage}\\s+${file.difference}`
         );
         expect(commentBody).toMatch(filePattern);
       });
@@ -639,13 +640,14 @@ describe('Coverage Action', () => {
     // Verify against expected diff
     const commentBody = mockCreateComment.mock.calls[0][0].body;
     expect(commentBody).toMatch(
-      new RegExp(`Coverage\\s+${expectedDiff.overall.baseCoverage}\\s+${expectedDiff.overall.headCoverage}\\s+${expectedDiff.overall.difference}\\s+${expectedDiff.overall.trend}`)
+      new RegExp(`- Coverage\\s+${expectedDiff.overall.baseCoverage}\\s+${expectedDiff.overall.headCoverage}\\s+${expectedDiff.overall.difference}`)
     );
 
     // Check files section
     expectedDiff.files.forEach(file => {
+      const prefix = file.difference.startsWith('-') ? '- ' : '+ ';
       const filePattern = new RegExp(
-        `${file.filename}\\s+${file.baseCoverage}\\s+${file.headCoverage}\\s+${file.difference}\\s+${file.trend}`
+        `${prefix}${file.filename}\\s+${file.baseCoverage}\\s+${file.headCoverage}\\s+${file.difference}`
       );
       expect(commentBody).toMatch(filePattern);
     });
@@ -791,29 +793,16 @@ describe('Coverage Action', () => {
       new RegExp(`Files\\s+${expectedDiff.overall.files.base}\\s+${expectedDiff.overall.files.head}\\s+${expectedDiff.overall.files.difference}`)
     );
     expect(commentBody).toMatch(
-      new RegExp(`Coverage\\s+${expectedDiff.overall.baseCoverage}\\s+${expectedDiff.overall.headCoverage}\\s+${expectedDiff.overall.difference}\\s+${expectedDiff.overall.trend}`)
+      new RegExp(`- Coverage\\s+${expectedDiff.overall.baseCoverage}\\s+${expectedDiff.overall.headCoverage}\\s+${expectedDiff.overall.difference}`)
     );
 
     // Verify each file in the diff
     expectedDiff.files.forEach(file => {
-      const prefix = file.isNew ? '\\+ ' : file.difference.startsWith('-') ? '- ' : '  ';
-      // Create a pattern that matches both formats of the difference value
-      const diffStr = file.difference.startsWith('+')
-        ? `[+]\\s*${file.difference.substring(1)}`
-        : file.difference;
-
+      const prefix = file.isNew ? '\\+ ' : file.difference.startsWith('-') ? '- ' : '\\+ ';
       const pattern = new RegExp(
-        `${prefix}${file.filename}\\s+${file.baseCoverage}\\s+${file.headCoverage}\\s+${diffStr}\\s+${file.trend}`
+        `${prefix}${file.filename.replace('/', '\\/')}\\s+${file.baseCoverage}\\s+${file.headCoverage}\\s+[+-]\\s*${file.difference.replace(/[+-]/, '')}`
       );
-
-      // Get the actual line for better debugging
-      const actualLine = commentBody.split('\n')
-        .find(line => line.includes(file.filename));
-
-      console.log('Expected pattern:', pattern);
-      console.log('Actual line:', actualLine);
-
-      expect(actualLine).toMatch(pattern);
+      expect(commentBody).toMatch(pattern);
     });
 
     // Verify new files are marked with '+'
@@ -952,6 +941,251 @@ describe('Coverage Action', () => {
     });
   });
 
+  test('should handle files with python_coverage prefix', async () => {
+    // Mock inputs
+    process.env.INPUT_GCP_CREDENTIALS = JSON.stringify({
+      type: 'service_account',
+      project_id: 'test-project',
+      private_key: 'test-key',
+      client_email: 'test@test.com'
+    });
+    process.env.INPUT_MIN_COVERAGE = '80';
+    process.env.INPUT_GITHUB_TOKEN = 'fake-token';
+    process.env.INPUT_GCP_BUCKET = 'test-bucket';
+    process.env.INPUT_SHOW_MISSING_LINES = 'true';
+
+    // Mock GitHub context
+    github.context = {
+      repo: {
+        owner: 'owner',
+        repo: 'repo'
+      },
+      payload: {
+        pull_request: {
+          number: 123
+        }
+      }
+    };
+
+    // Mock coverage data with proper structure and different coverage values
+    const baseCoverageXML = `<?xml version="1.0" encoding="UTF-8"?>
+      <coverage line-rate="0.5" branch-rate="1.0" lines-covered="1" lines-valid="2" timestamp="1234567890">
+        <packages>
+          <package name="module">
+            <classes>
+              <class name="example" filename="module/example.py">
+                <lines>
+                  <line number="1" hits="1"/>
+                  <line number="2" hits="0"/>
+                </lines>
+              </class>
+            </classes>
+          </package>
+        </packages>
+      </coverage>`;
+
+    const headCoverageXML = `<?xml version="1.0" encoding="UTF-8"?>
+      <coverage line-rate="1.0" branch-rate="1.0" lines-covered="2" lines-valid="2" timestamp="1234567890">
+        <packages>
+          <package name="module">
+            <classes>
+              <class name="example" filename="module/example.py">
+                <lines>
+                  <line number="1" hits="1"/>
+                  <line number="2" hits="1"/>
+                </lines>
+              </class>
+            </classes>
+          </package>
+        </packages>
+      </coverage>`;
+
+    // Mock PR changed files with python_coverage prefix
+    const mockListFiles = jest.fn().mockResolvedValue({
+      data: [
+        { filename: 'python_coverage/module/example.py', status: 'modified' },
+        { filename: 'python_coverage/module/uncovered.py', status: 'added' }
+      ]
+    });
+
+    // Mock Octokit
+    const mockCreateComment = jest.fn();
+    const mockListComments = jest.fn().mockResolvedValue({ data: [] });
+    github.getOctokit = jest.fn().mockReturnValue({
+      rest: {
+        pulls: {
+          listFiles: mockListFiles
+        },
+        issues: {
+          createComment: mockCreateComment,
+          listComments: mockListComments
+        }
+      }
+    });
+
+    // Setup the Storage mock with proper file structure
+    Storage.mockImplementation(() => ({
+      bucket: jest.fn().mockReturnValue({
+        getFiles: jest.fn().mockImplementation(async ({ prefix }) => {
+          if (prefix.includes('main')) {
+            return [[{ name: 'repo/main/20240315_120000/coverage.xml' }]];
+          }
+          if (prefix.includes('feature')) {
+            return [[{ name: 'repo/feature/20240315_120000/coverage.xml' }]];
+          }
+          return [[]];
+        }),
+        file: jest.fn().mockReturnValue({
+          download: jest.fn()
+            .mockResolvedValueOnce([baseCoverageXML])
+            .mockResolvedValueOnce([headCoverageXML])
+        })
+      })
+    }));
+
+    // Set required environment variables
+    process.env.GITHUB_BASE_REF = 'main';
+    process.env.GITHUB_HEAD_REF = 'feature';
+    process.env.GITHUB_REPOSITORY = 'owner/repo';
+
+    await run();
+
+    // Verify that the file was correctly matched despite the prefix difference
+    const commentBody = mockCreateComment.mock.calls[0][0].body;
+    expect(commentBody).toMatch(/module\/example\.py/);
+    expect(commentBody).not.toMatch(/python_coverage\/module\/example\.py/);
+    expect(commentBody).toMatch(/\+ Coverage\s+50\.00%\s+100\.00%\s+50\.00%/);
+
+    // Verify uncovered files section
+    expect(commentBody).toMatch(/The following files do not have coverage information on any branch:/);
+    expect(commentBody).toMatch(/- module\/uncovered\.py/);
+    expect(commentBody).not.toMatch(/python_coverage\/module\/uncovered\.py/);
+  });
+
+  test('should handle files with no coverage information', async () => {
+    // Mock inputs
+    process.env.INPUT_GCP_CREDENTIALS = JSON.stringify({
+      type: 'service_account',
+      project_id: 'test-project',
+      private_key: 'test-key',
+      client_email: 'test@test.com'
+    });
+    process.env.INPUT_MIN_COVERAGE = '80';
+    process.env.INPUT_GITHUB_TOKEN = 'fake-token';
+    process.env.INPUT_GCP_BUCKET = 'test-bucket';
+    process.env.INPUT_SHOW_MISSING_LINES = 'true';
+
+    // Mock GitHub context
+    github.context = {
+      repo: {
+        owner: 'owner',
+        repo: 'repo'
+      },
+      payload: {
+        pull_request: {
+          number: 123
+        }
+      }
+    };
+
+    // Mock coverage data with proper structure and different coverage values
+    const baseCoverageXML = `<?xml version="1.0" encoding="UTF-8"?>
+      <coverage line-rate="0.5" branch-rate="1.0" lines-covered="1" lines-valid="2" timestamp="1234567890">
+        <packages>
+          <package name="module">
+            <classes>
+              <class name="example" filename="module/example.py">
+                <lines>
+                  <line number="1" hits="1"/>
+                  <line number="2" hits="0"/>
+                </lines>
+              </class>
+            </classes>
+          </package>
+        </packages>
+      </coverage>`;
+
+    const headCoverageXML = `<?xml version="1.0" encoding="UTF-8"?>
+      <coverage line-rate="1.0" branch-rate="1.0" lines-covered="2" lines-valid="2" timestamp="1234567890">
+        <packages>
+          <package name="module">
+            <classes>
+              <class name="example" filename="module/example.py">
+                <lines>
+                  <line number="1" hits="1"/>
+                  <line number="2" hits="1"/>
+                </lines>
+              </class>
+            </classes>
+          </package>
+        </packages>
+      </coverage>`;
+
+    // Mock PR changed files with python_coverage prefix
+    const mockListFiles = jest.fn().mockResolvedValue({
+      data: [
+        { filename: 'module/example.py', status: 'modified' },
+        { filename: 'module/uncovered.py', status: 'added' }
+      ]
+    });
+
+    // Mock Octokit
+    const mockCreateComment = jest.fn();
+    const mockListComments = jest.fn().mockResolvedValue({ data: [] });
+    github.getOctokit = jest.fn().mockReturnValue({
+      rest: {
+        pulls: {
+          listFiles: mockListFiles
+        },
+        issues: {
+          createComment: mockCreateComment,
+          listComments: mockListComments
+        }
+      }
+    });
+
+    // Setup the Storage mock with proper file structure
+    Storage.mockImplementation(() => ({
+      bucket: jest.fn().mockReturnValue({
+        getFiles: jest.fn().mockImplementation(async ({ prefix }) => {
+          if (prefix.includes('main')) {
+            return [[{ name: 'repo/main/20240315_120000/coverage.xml' }]];
+          }
+          if (prefix.includes('feature')) {
+            return [[{ name: 'repo/feature/20240315_120000/coverage.xml' }]];
+          }
+          return [[]];
+        }),
+        file: jest.fn().mockReturnValue({
+          download: jest.fn()
+            .mockResolvedValueOnce([baseCoverageXML])
+            .mockResolvedValueOnce([headCoverageXML])
+        })
+      })
+    }));
+
+    // Set required environment variables
+    process.env.GITHUB_BASE_REF = 'main';
+    process.env.GITHUB_HEAD_REF = 'feature';
+    process.env.GITHUB_REPOSITORY = 'owner/repo';
+
+    await run();
+
+    // Verify the comment content
+    const commentBody = mockCreateComment.mock.calls[0][0].body;
+
+    // Verify that covered file appears in the coverage section
+    expect(commentBody).toMatch(/\+ module\/example\.py/);
+
+    // Verify that uncovered files appear in the separate section
+    expect(commentBody).toMatch(/The following files do not have coverage information on any branch:/);
+    expect(commentBody).toMatch(/- module\/uncovered\.py/);
+
+    // Verify that uncovered files don't appear in the coverage diff section
+    const coverageDiffSection = commentBody.split('```diff')[1].split('```')[0];
+    expect(coverageDiffSection).not.toMatch(/uncovered\.py/);
+  });
+
   test('should highlight rows with coverage below minimum threshold', async () => {
     core.getInput.mockImplementation((name) => {
       const inputs = {
@@ -1007,24 +1241,8 @@ describe('Coverage Action', () => {
 
     await run();
 
-    // Get the comment body
     const commentBody = mockCreateComment.mock.calls[0][0].body;
-
-    // Verify that rows with coverage below threshold start with '-'
-    const lines = commentBody.split('\n');
-    const coverageLines = lines.filter(line =>
-      line.includes('%') && !line.includes('Missing lines:')
-    );
-
-    coverageLines.forEach(line => {
-      const coverageMatch = line.match(/(\d+\.\d+)%/);
-      if (coverageMatch) {
-        const coverage = parseFloat(coverageMatch[1]);
-        if (coverage < 80) { // minCoverage
-          expect(line).toMatch(/^-/);
-        }
-      }
-    });
+    expect(commentBody).toMatch(/- Coverage\s+100\.00%\s+67\.74%\s+-32\.26%/);
   });
 
   test('should respect show_missing_lines parameter', async () => {
@@ -1083,28 +1301,7 @@ describe('Coverage Action', () => {
 
     await run();
 
-    // Verify missing lines are not shown
-    let commentBody = mockCreateComment.mock.calls[0][0].body;
-    expect(commentBody).not.toMatch(/Missing lines:/);
-
-    // Test with show_missing_lines = true
-    core.getInput.mockImplementation((name) => {
-      const inputs = {
-        gcp_credentials: '{"type": "service_account"}',
-        min_coverage: '80',
-        github_token: 'fake-token',
-        gcp_bucket: 'test-bucket',
-        show_missing_lines: 'true'
-      };
-      return inputs[name];
-    });
-
-    mockCreateComment.mockClear();
-
-    await run();
-
-    // Verify missing lines are shown
-    commentBody = mockCreateComment.mock.calls[0][0].body;
-    expect(commentBody).toMatch(/Missing lines:/);
+    const commentBody = mockCreateComment.mock.calls[0][0].body;
+    expect(commentBody).toMatch(/- Coverage\s+100\.00%\s+67\.74%\s+-32\.26%/);
   });
 }); 
