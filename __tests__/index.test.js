@@ -1,8 +1,11 @@
 const core = require('@actions/core');
 const { Storage } = require('@google-cloud/storage');
-const { run } = require('../src/index');
+const { run, getFilesWithCoverageChanges } = require('../src/index.js');
 const github = require('@actions/github');
 const xml2js = require('xml2js');
+const fs = require('fs');
+const path = require('path');
+const ini = require('ini');
 
 // Mock the dependencies
 jest.mock('@actions/core');
@@ -15,10 +18,6 @@ const mockEnv = {
   GITHUB_BASE_REF: 'main',
   GITHUB_HEAD_REF: 'feature-branch'
 };
-
-// Add this before the describe block
-const fs = require('fs');
-const path = require('path');
 
 function loadTestData(type) {
   const baseCoverageXML = fs.readFileSync(
@@ -1265,5 +1264,241 @@ describe('Coverage Action', () => {
 
     const commentBody = mockCreateComment.mock.calls[0][0].body;
     expect(commentBody).toMatch(/- Coverage\s+100\.00%\s+67\.74%\s+-32\.26%/);
+  });
+
+  test('should exclude files matching .coveragerc omit patterns', () => {
+    // Mock coveragerc config with omit patterns
+    const coverageRcConfig = {
+      run: {
+        omit: ['**/test_files/**', 'src/ignored_file.py']
+      }
+    };
+
+    // Mock coverage data
+    const baseCoverage = {
+      coverage: {
+        classes: [{
+          class: []
+        }]
+      }
+    };
+    const headCoverage = {
+      coverage: {
+        classes: [{
+          class: []
+        }]
+      }
+    };
+
+    // Mock PR changed files
+    const prChangedFiles = [
+      { filename: 'test_files/test_module.py' },
+      { filename: 'src/ignored_file.py' },
+      { filename: 'src/main.py' }
+    ];
+
+    // Call the function
+    const { uncoveredFiles } = getFilesWithCoverageChanges(
+      baseCoverage,
+      headCoverage,
+      prChangedFiles,
+      coverageRcConfig
+    );
+
+    // Verify only non-omitted files are in uncovered files
+    expect(uncoveredFiles).toEqual(['src/main.py']);
+  });
+});
+
+describe('Coverage Action .coveragerc Loading', () => {
+  let originalCwd;
+  const sourceCoverageRcPath = path.join(__dirname, 'data', '.coveragerc');
+  const tempWorkspacePath = path.join(__dirname, 'temp_workspace');
+
+  beforeEach(() => {
+    // Store original working directory
+    originalCwd = process.cwd();
+
+    // Create a temporary workspace directory if it doesn't exist
+    if (!fs.existsSync(tempWorkspacePath)) {
+      fs.mkdirSync(tempWorkspacePath);
+    }
+
+    // Reset environment variables
+    process.env = { ...process.env, ...mockEnv };
+
+    // Reset mocks
+    jest.clearAllMocks();
+    core.info.mockClear();
+    core.warning.mockClear();
+  });
+
+  afterEach(() => {
+    // Restore original working directory
+    process.chdir(originalCwd);
+
+    // Clean up temporary workspace
+    if (fs.existsSync(tempWorkspacePath)) {
+      fs.rmSync(tempWorkspacePath, { recursive: true, force: true });
+    }
+  });
+
+  test('should load .coveragerc if present in workspace', async () => {
+    // Spy on core.info BEFORE running the action
+    const infoSpy = jest.spyOn(core, 'info');
+
+    // Copy .coveragerc to temporary workspace
+    const coverageRcContent = fs.readFileSync(sourceCoverageRcPath, 'utf-8');
+    const tempCoverageRcPath = path.join(tempWorkspacePath, '.coveragerc');
+    fs.writeFileSync(tempCoverageRcPath, coverageRcContent);
+
+    // Change current working directory to temporary workspace
+    process.chdir(tempWorkspacePath);
+
+    // Mock GitHub context and other required inputs
+    github.context = {
+      repo: { owner: 'owner', repo: 'repo' },
+      payload: { pull_request: { number: 123 } }
+    };
+
+    // Mock inputs and other dependencies as in other tests
+    core.getInput.mockImplementation((name) => {
+      const inputs = {
+        gcp_credentials: '{"type": "service_account"}',
+        min_coverage: '80',
+        github_token: 'fake-token',
+        gcp_bucket: 'test-bucket',
+        show_missing_lines: 'false'
+      };
+      return inputs[name];
+    });
+
+    // Mock Octokit to handle listFiles
+    github.getOctokit.mockReturnValue({
+      rest: {
+        pulls: {
+          listFiles: jest.fn().mockResolvedValue({ data: [] })
+        },
+        issues: {
+          createComment: jest.fn(),
+          listComments: jest.fn().mockResolvedValue({ data: [] })
+        }
+      }
+    });
+
+    // Mock Storage and other dependencies to return minimal coverage data
+    Storage.mockImplementation(() => ({
+      bucket: jest.fn().mockReturnValue({
+        getFiles: jest.fn().mockResolvedValue([[
+          { name: 'repo/main/20240315_120000/coverage.xml' },
+          { name: 'repo/feature-branch/20240315_120000/coverage.xml' }
+        ]]),
+        file: jest.fn().mockReturnValue({
+          download: jest.fn().mockResolvedValue(['<?xml version="1.0"?><coverage line-rate="1.0"></coverage>'])
+        })
+      })
+    }));
+
+    // Spy on fs.existsSync to ensure it's called with the correct path
+    const existsSyncSpy = jest.spyOn(fs, 'existsSync');
+
+    // Run the action
+    await run();
+
+    // Verify .coveragerc path was checked
+    expect(existsSyncSpy).toHaveBeenCalledWith(expect.stringContaining('.coveragerc'));
+
+    // Get all info logs
+    const infoLogs = infoSpy.mock.calls.map(call => call[0]);
+
+    // Parse the expected omitted paths
+    const parsedConfig = ini.parse(coverageRcContent);
+    const expectedOmitPaths = Object.keys(parsedConfig.run)
+      .filter(key => key !== 'source' && key.includes('*'))
+      .join(', ');
+
+    // Find logs that match our expectations
+    const configLoadLog = infoLogs.find(log =>
+      log.includes('Loaded .coveragerc configuration')
+    );
+    const omitPathsLog = infoLogs.find(log =>
+      log.includes('Omitted paths from coverage:')
+    );
+
+    // Detailed assertions with helpful error messages
+    expect(configLoadLog).not.toBeUndefined();
+    expect(omitPathsLog).not.toBeUndefined();
+
+    // Check that the omit paths log contains the expected paths
+    const omitPathsInLog = omitPathsLog.split('Omitted paths from coverage:')[1].trim();
+    const expectedOmitPathsArray = expectedOmitPaths.split(', ');
+
+    expectedOmitPathsArray.forEach(path => {
+      expect(omitPathsInLog).toContain(path,
+        `Expected path '${path}' not found in omit paths log: ${omitPathsInLog}`
+      );
+    });
+  });
+
+  test('should not fail if .coveragerc is not present', async () => {
+    // Change current working directory to temporary workspace
+    process.chdir(tempWorkspacePath);
+
+    // Mock GitHub context and other required inputs
+    github.context = {
+      repo: { owner: 'owner', repo: 'repo' },
+      payload: { pull_request: { number: 123 } }
+    };
+
+    // Mock inputs and other dependencies as in other tests
+    core.getInput.mockImplementation((name) => {
+      const inputs = {
+        gcp_credentials: '{"type": "service_account"}',
+        min_coverage: '80',
+        github_token: 'fake-token',
+        gcp_bucket: 'test-bucket',
+        show_missing_lines: 'false'
+      };
+      return inputs[name];
+    });
+
+    // Mock Octokit to handle listFiles
+    github.getOctokit.mockReturnValue({
+      rest: {
+        pulls: {
+          listFiles: jest.fn().mockResolvedValue({ data: [] })
+        },
+        issues: {
+          createComment: jest.fn(),
+          listComments: jest.fn().mockResolvedValue({ data: [] })
+        }
+      }
+    });
+
+    // Mock Storage and other dependencies to return minimal coverage data
+    Storage.mockImplementation(() => ({
+      bucket: jest.fn().mockReturnValue({
+        getFiles: jest.fn().mockResolvedValue([[
+          { name: 'repo/main/20240315_120000/coverage.xml' },
+          { name: 'repo/feature-branch/20240315_120000/coverage.xml' }
+        ]]),
+        file: jest.fn().mockReturnValue({
+          download: jest.fn().mockResolvedValue(['<?xml version="1.0"?><coverage line-rate="1.0"></coverage>'])
+        })
+      })
+    }));
+
+    // Run the action
+    await run();
+
+    // Verify no warnings about .coveragerc
+    const warningLogs = core.warning.mock.calls.map(call => call[0]);
+
+    // If warnings exist, log them for debugging
+    if (warningLogs.length > 0) {
+      console.log('Warning logs:', warningLogs);
+    }
+
+    expect(warningLogs).toHaveLength(0);
   });
 }); 
