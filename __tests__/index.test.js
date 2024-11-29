@@ -1270,7 +1270,7 @@ describe('Coverage Action', () => {
     // Mock coveragerc config with omit patterns
     const coverageRcConfig = {
       run: {
-        omit: ['**/test_files/**', 'src/ignored_file.py']
+        omit: ['**/test_files/**', 'src/ignored_file.py', '**/tests/**']
       }
     };
 
@@ -1293,6 +1293,7 @@ describe('Coverage Action', () => {
     // Mock PR changed files
     const prChangedFiles = [
       { filename: 'test_files/test_module.py' },
+      { filename: "some_other_folder/tests/whatever_file.py" },
       { filename: 'src/ignored_file.py' },
       { filename: 'src/main.py' }
     ];
