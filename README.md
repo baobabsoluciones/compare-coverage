@@ -45,6 +45,12 @@ This feature is particularly useful for:
 - Ignoring generated code
 - Skipping files that don't require full coverage
 
+**Flexible Matching:**
+
+- Patterns can match full paths or individual file/directory names
+- Works across different project structures
+- Supports wildcard and glob-style patterns
+
 ## Usage
 
 This action is typically used in conjunction with a coverage upload action. Here's a complete example:
@@ -77,7 +83,7 @@ jobs:
 
       # Upload the coverage report
       - name: Upload coverage
-        uses: baobabsoluciones/upload-coverage@v0.0.14
+        uses: baobabsoluciones/upload-coverage@v0.0.15
         with:
           python-version: ${{ matrix.python-version }}
           gcp-project-id: ${{ secrets.GCP_PROJECT_ID }}
