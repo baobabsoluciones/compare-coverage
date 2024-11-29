@@ -967,38 +967,19 @@ describe('Coverage Action', () => {
       }
     };
 
-    // Mock coverage data with proper structure and different coverage values
-    const baseCoverageXML = `<?xml version="1.0" encoding="UTF-8"?>
-      <coverage line-rate="0.5" branch-rate="1.0" lines-covered="1" lines-valid="2" timestamp="1234567890">
-        <packages>
-          <package name="module">
-            <classes>
-              <class name="example" filename="module/example.py">
-                <lines>
-                  <line number="1" hits="1"/>
-                  <line number="2" hits="0"/>
-                </lines>
-              </class>
-            </classes>
-          </package>
-        </packages>
-      </coverage>`;
+    // Read the coverage XML files from external files
+    const fs = require('fs');
+    const path = require('path');
 
-    const headCoverageXML = `<?xml version="1.0" encoding="UTF-8"?>
-      <coverage line-rate="1.0" branch-rate="1.0" lines-covered="2" lines-valid="2" timestamp="1234567890">
-        <packages>
-          <package name="module">
-            <classes>
-              <class name="example" filename="module/example.py">
-                <lines>
-                  <line number="1" hits="1"/>
-                  <line number="2" hits="1"/>
-                </lines>
-              </class>
-            </classes>
-          </package>
-        </packages>
-      </coverage>`;
+    const baseCoverageXML = fs.readFileSync(
+      path.join(__dirname, 'data', 'python_coverage_base.xml'),
+      'utf8'
+    );
+
+    const headCoverageXML = fs.readFileSync(
+      path.join(__dirname, 'data', 'python_coverage_head.xml'),
+      'utf8'
+    );
 
     // Mock PR changed files with python_coverage prefix
     const mockListFiles = jest.fn().mockResolvedValue({
@@ -1088,40 +1069,21 @@ describe('Coverage Action', () => {
       }
     };
 
-    // Mock coverage data with proper structure and different coverage values
-    const baseCoverageXML = `<?xml version="1.0" encoding="UTF-8"?>
-      <coverage line-rate="0.5" branch-rate="1.0" lines-covered="1" lines-valid="2" timestamp="1234567890">
-        <packages>
-          <package name="module">
-            <classes>
-              <class name="example" filename="module/example.py">
-                <lines>
-                  <line number="1" hits="1"/>
-                  <line number="2" hits="0"/>
-                </lines>
-              </class>
-            </classes>
-          </package>
-        </packages>
-      </coverage>`;
+    // Read the coverage XML files from external files
+    const fs = require('fs');
+    const path = require('path');
 
-    const headCoverageXML = `<?xml version="1.0" encoding="UTF-8"?>
-      <coverage line-rate="1.0" branch-rate="1.0" lines-covered="2" lines-valid="2" timestamp="1234567890">
-        <packages>
-          <package name="module">
-            <classes>
-              <class name="example" filename="module/example.py">
-                <lines>
-                  <line number="1" hits="1"/>
-                  <line number="2" hits="1"/>
-                </lines>
-              </class>
-            </classes>
-          </package>
-        </packages>
-      </coverage>`;
+    const baseCoverageXML = fs.readFileSync(
+      path.join(__dirname, 'data', 'python_no_coverage_base.xml'),
+      'utf8'
+    );
 
-    // Mock PR changed files with python_coverage prefix
+    const headCoverageXML = fs.readFileSync(
+      path.join(__dirname, 'data', 'python_no_coverage_head.xml'),
+      'utf8'
+    );
+
+    // Mock PR changed files
     const mockListFiles = jest.fn().mockResolvedValue({
       data: [
         { filename: 'module/example.py', status: 'modified' },
