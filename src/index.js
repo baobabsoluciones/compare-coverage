@@ -1,13 +1,16 @@
 /**
  * GitHub Action for comparing code coverage between branches
  * Supports Java, JavaScript, and Python coverage formats
- * Version: 0.0.13
+ * Version: 0.0.14
  */
 const core = require('@actions/core');
 const github = require('@actions/github');
 const { Storage } = require('@google-cloud/storage');
 const xml2js = require('xml2js');
 const path = require('path');
+const fs = require('fs');
+const ini = require('ini');
+const minimatch = require('minimatch');
 
 async function run() {
   try {
@@ -17,6 +20,31 @@ async function run() {
     const githubToken = core.getInput('github_token', { required: true });
     const bucketName = core.getInput('gcp_bucket', { required: true });
     const showMissingLines = core.getInput('show_missing_lines').toLowerCase() === 'true';
+
+    // Load .coveragerc if it exists
+    const coverageRcPath = path.resolve(process.cwd(), '.coveragerc');
+    let coverageRcConfig = {};
+    if (fs.existsSync(coverageRcPath)) {
+      try {
+        const rawConfig = fs.readFileSync(coverageRcPath, 'utf-8');
+        coverageRcConfig = ini.parse(rawConfig);
+        core.info(`Loaded .coveragerc configuration from ${coverageRcPath}`);
+
+        // Extract omitted paths manually
+        const omittedPaths = Object.keys(coverageRcConfig.run)
+          .filter(key =>
+            key !== 'source' &&
+            key !== 'omit' &&
+            key.includes('*')
+          );
+
+        if (omittedPaths.length > 0) {
+          core.info(`Omitted paths from coverage: ${omittedPaths.join(', ')}`);
+        }
+      } catch (error) {
+        core.warning(`Failed to parse .coveragerc: ${error.message}`);
+      }
+    }
 
     // Initialize GitHub API client early
     const octokit = github.getOctokit(githubToken);
@@ -145,7 +173,7 @@ async function run() {
     console.log('PR Changed Files:', prChangedFiles);
 
     // Get files with coverage changes
-    const { changedFiles, uncoveredFiles } = getFilesWithCoverageChanges(baseCoverage, headCoverage, prChangedFiles);
+    const { changedFiles, uncoveredFiles } = getFilesWithCoverageChanges(baseCoverage, headCoverage, prChangedFiles, coverageRcConfig);
     console.log('Changed Files:', changedFiles);
 
     // Create PR comment message with diff-style format
@@ -454,11 +482,28 @@ function printFileStatistics(coverage) {
   }
 }
 
-function getFilesWithCoverageChanges(baseCoverage, headCoverage, prChangedFiles = []) {
+function getFilesWithCoverageChanges(baseCoverage, headCoverage, prChangedFiles = [], coverageRcConfig = {}) {
   const changedFiles = [];
   const baseFiles = new Map();
   const headFiles = new Map();
   const uncoveredFiles = [];
+
+  // Helper to check if a file matches omit patterns
+  const matchesOmitPattern = (filename) => {
+    // Check if there's an omit section in the coveragerc config
+    const omitPatterns = coverageRcConfig.run?.omit || [];
+
+    // If no omit patterns, return false
+    if (omitPatterns.length === 0) return false;
+
+    // Use minimatch for pattern matching
+    return omitPatterns.some(pattern => {
+      // Normalize the pattern to use forward slashes
+      const normalizedPattern = pattern.replace(/\\/g, '/');
+      const normalizedFilename = filename.replace(/\\/g, '/');
+      return minimatch.minimatch(normalizedFilename, normalizedPattern);
+    });
+  };
 
   // Helper to normalize file paths by removing python_coverage prefix
   const normalizePath = (path) => {
@@ -562,6 +607,13 @@ function getFilesWithCoverageChanges(baseCoverage, headCoverage, prChangedFiles 
     // Only process source code files
     if (filename.match(/\.(py|js|java|jsx|ts|tsx)$/)) {
       const normalizedFilename = normalizePath(filename);
+
+      // Check if file matches omit patterns
+      if (matchesOmitPattern(normalizedFilename)) {
+        core.info(`Skipping uncovered file due to .coveragerc omit: ${normalizedFilename}`);
+        return;
+      }
+
       // If file isn't in either coverage report but was changed in PR
       if (!baseFiles.has(normalizedFilename) && !headFiles.has(normalizedFilename)) {
         uncoveredFiles.push(normalizedFilename);
@@ -612,7 +664,7 @@ async function getPRChangedFiles(octokit, context) {
   }
 }
 
-module.exports = { run };
+module.exports = { run, getFilesWithCoverageChanges };
 
 if (require.main === module) {
   run();
