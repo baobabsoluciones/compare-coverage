@@ -13,6 +13,37 @@ A GitHub Action that compares code coverage between branches by analyzing covera
 - Fails the check if coverage falls below minimum threshold
 - Tracks new files and coverage changes in PR-modified files
 - Intelligently handles path prefixes (e.g., `python_coverage/`) to match files between PR changes and coverage reports
+- **New: Supports `.coveragerc` configuration file**
+
+### .coveragerc Support
+
+The action now supports reading a `.coveragerc` file in your repository. This allows you to:
+
+- Specify files to be omitted from coverage reports
+- Configure coverage measurement settings
+
+#### Omitting Files
+
+In your `.coveragerc` file, you can use the `omit` section under `[run]` to exclude specific files or patterns from coverage reports:
+
+```ini
+[run]
+omit =
+    **/test_files/**
+    src/ignored_file.py
+    tests/*
+```
+
+Files matching these patterns will:
+
+- Be excluded from the list of uncovered files
+- Not trigger coverage warnings or failures
+
+This feature is particularly useful for:
+
+- Excluding test files
+- Ignoring generated code
+- Skipping files that don't require full coverage
 
 ## Usage
 
@@ -46,7 +77,7 @@ jobs:
 
       # Upload the coverage report
       - name: Upload coverage
-        uses: baobabsoluciones/upload-coverage@v0.0.6
+        uses: baobabsoluciones/upload-coverage@v0.0.14
         with:
           python-version: ${{ matrix.python-version }}
           gcp-project-id: ${{ secrets.GCP_PROJECT_ID }}
