@@ -496,12 +496,17 @@ function getFilesWithCoverageChanges(baseCoverage, headCoverage, prChangedFiles 
     // If no omit patterns, return false
     if (omitPatterns.length === 0) return false;
 
-    // Use minimatch for pattern matching
+    // Use minimatch for pattern matching with partial path support
     return omitPatterns.some(pattern => {
-      // Normalize the pattern to use forward slashes
-      const normalizedPattern = pattern.replace(/\\/g, '/');
-      const normalizedFilename = filename.replace(/\\/g, '/');
-      return minimatch.minimatch(normalizedFilename, normalizedPattern);
+      // Normalize paths to use forward slashes and trim
+      const normalizedPattern = pattern.trim().replace(/\\/g, '/');
+      const normalizedFilename = filename.trim().replace(/\\/g, '/');
+
+      // Check if the pattern matches the entire filename or any of its path segments
+      return minimatch.minimatch(normalizedFilename, normalizedPattern) ||
+        normalizedFilename.split('/').some(pathSegment =>
+          minimatch.minimatch(pathSegment, normalizedPattern)
+        );
     });
   };
 
