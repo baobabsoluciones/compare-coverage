@@ -1298,12 +1298,15 @@ describe('Coverage Action', () => {
     ];
 
     // Call the function
-    const { uncoveredFiles } = getFilesWithCoverageChanges(
+    const { changedFiles, uncoveredFiles } = getFilesWithCoverageChanges(
       baseCoverage,
       headCoverage,
       prChangedFiles,
       coverageRcConfig
     );
+
+    console.log(changedFiles);
+    console.log(uncoveredFiles);
 
     // Verify only non-omitted files are in uncovered files
     expect(uncoveredFiles).toEqual(['src/main.py']);
