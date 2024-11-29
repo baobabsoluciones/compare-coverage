@@ -503,10 +503,8 @@ function getFilesWithCoverageChanges(baseCoverage, headCoverage, prChangedFiles 
       const normalizedFilename = filename.trim().replace(/\\/g, '/');
 
       // Check if the pattern matches the entire filename or any of its path segments
-      return minimatch.minimatch(normalizedFilename, normalizedPattern) ||
-        normalizedFilename.split('/').some(pathSegment =>
-          minimatch.minimatch(pathSegment, normalizedPattern)
-        );
+      // Use ** to match multiple path segments
+      return minimatch.minimatch(normalizedFilename, normalizedPattern, { matchBase: true });
     });
   };
 
