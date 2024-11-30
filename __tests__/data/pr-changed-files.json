@@ -1,0 +1,18 @@
+[
+  {
+    "filename": ".coveragerc",
+    "status": "modified"
+  },
+  {
+    "filename": ".github/workflows/tests.yml",
+    "status": "modified"
+  },
+  {
+    "filename": "python_coverage/module/string_ops.py",
+    "status": "modified"
+  },
+  {
+    "filename": "python_coverage/tests/test_string_ops.py",
+    "status": "modified"
+  }
+]

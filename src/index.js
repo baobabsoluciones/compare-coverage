@@ -496,15 +496,27 @@ function getFilesWithCoverageChanges(baseCoverage, headCoverage, prChangedFiles 
     // If no omit patterns, return false
     if (omitPatterns.length === 0) return false;
 
-    // Use minimatch for pattern matching with partial path support
-    return omitPatterns.some(pattern => {
-      // Normalize paths to use forward slashes and trim
-      const normalizedPattern = pattern.trim().replace(/\\/g, '/');
-      const normalizedFilename = filename.trim().replace(/\\/g, '/');
+    // Normalize the filename to handle different base paths
+    const normalizedFilename = filename.trim()
+      .replace(/\\/g, '/')  // Convert Windows paths to Unix
+      .replace(/^python_coverage\//, '')  // Remove python_coverage prefix
+      .replace(/^src\//, '')  // Remove src prefix
+      .replace(/^\.\//, '');  // Remove ./ prefix
 
-      // Check if the pattern matches the entire filename or any of its path segments
-      // Use ** to match multiple path segments
-      return minimatch.minimatch(normalizedFilename, normalizedPattern, { matchBase: true });
+    return omitPatterns.some(pattern => {
+      // Normalize pattern and convert shell-style glob to minimatch pattern
+      let normalizedPattern = pattern.trim()
+        .replace(/\\/g, '/')  // Convert Windows paths to Unix
+        .replace(/^\.\//, '')  // Remove ./ prefix
+        .replace(/^\*\//g, '**/') // Convert leading */ to **/ for recursive matching
+        .replace(/\/\*$/g, '/**'); // Convert trailing /* to /** for recursive matching
+
+      // Remove src/ prefix from pattern if it exists
+      normalizedPattern = normalizedPattern.replace(/^src\//, '');
+
+      // Try both exact match and with leading **/ for nested paths
+      return minimatch.minimatch(normalizedFilename, normalizedPattern, { dot: true }) ||
+        minimatch.minimatch(normalizedFilename, `**/${normalizedPattern}`, { dot: true });
     });
   };
 

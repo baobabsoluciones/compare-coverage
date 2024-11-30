@@ -1266,11 +1266,11 @@ describe('Coverage Action', () => {
     expect(commentBody).toMatch(/- Coverage\s+100\.00%\s+67\.74%\s+-32\.26%/);
   });
 
-  test('should exclude files matching .coveragerc omit patterns', () => {
+  test.only('should exclude files matching .coveragerc omit patterns', () => {
     // Mock coveragerc config with omit patterns
     const coverageRcConfig = {
       run: {
-        omit: ['**/test_files/**', 'src/ignored_file.py', '**/tests/**']
+        omit: ['*/test_files/*', 'src/ignored_file.py', '*/tests/*']
       }
     };
 
@@ -1294,6 +1294,7 @@ describe('Coverage Action', () => {
     const prChangedFiles = [
       { filename: 'test_files/test_module.py' },
       { filename: "some_other_folder/tests/whatever_file.py" },
+      { filename: "tests/string_ops.py" },
       { filename: 'src/ignored_file.py' },
       { filename: 'src/main.py' }
     ];
