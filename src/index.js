@@ -1,7 +1,7 @@
 /**
  * GitHub Action for comparing code coverage between branches
  * Supports Java, JavaScript, and Python coverage formats
- * Version: 0.0.16
+ * Version: 0.0.18
  */
 const core = require('@actions/core');
 const github = require('@actions/github');
