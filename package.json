@@ -6,7 +6,7 @@
   "scripts": {
     "test": "jest",
     "test:watch": "jest --watch",
-    "test:coverage": "jest --coverage --coverageProvider=v8",
+    "test:coverage": "jest --coverage",
     "test:debug": "node --inspect-brk node_modules/.bin/jest --runInBand",
     "build": "ncc build src/index.js -o dist"
   },
@@ -35,12 +35,11 @@
       [
         "cobertura",
         {
-          "file": "cobertura-coverage.xml"
+          "file": "coverage.xml"
         }
       ]
     ],
     "coverageDirectory": "coverage",
-    "coverageProvider": "v8",
     "coveragePathIgnorePatterns": [
       "/node_modules/"
     ],

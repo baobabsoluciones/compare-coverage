@@ -28,7 +28,7 @@ jobs:
 
       - name: Run unit tests with coverage
         run: |
-          npm test -- --coverage
+          npm run test:coverage
           mv coverage/cobertura-coverage.xml coverage/coverage.xml
 
       - name: Upload coverage reports
