@@ -1,5 +1,5 @@
 [run]
-source = .
+source = python_coverage
 omit = 
     */tests/*
     */__init__.py

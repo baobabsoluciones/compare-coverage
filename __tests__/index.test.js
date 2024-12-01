@@ -977,6 +977,11 @@ describe('Coverage Action', () => {
   });
 
   test('should handle files with python_coverage prefix', async () => {
+    // Read the coverage XML files from external files
+    const fs = require('fs');
+    const path = require('path');
+    const originalReadFileSync = fs.readFileSync;
+
     // Mock inputs
     process.env.INPUT_GCP_CREDENTIALS = JSON.stringify({
       type: 'service_account',
@@ -989,6 +994,26 @@ describe('Coverage Action', () => {
     process.env.INPUT_GCP_BUCKET = 'test-bucket';
     process.env.INPUT_SHOW_MISSING_LINES = 'true';
 
+    // Mock .coveragerc file
+    fs.existsSync = jest.fn().mockImplementation(path => {
+      return path === '.coveragerc';
+    });
+
+    fs.readFileSync = jest.fn().mockImplementation((filePath, encoding) => {
+      // Handle our test files
+      if (filePath === '.coveragerc') {
+        return '[run]\nsource = python_coverage\n';
+      }
+      if (filePath.includes('python_coverage_base.xml')) {
+        return originalReadFileSync(path.join(__dirname, 'data', 'python_coverage_base.xml'), 'utf8');
+      }
+      if (filePath.includes('python_coverage_head.xml')) {
+        return originalReadFileSync(path.join(__dirname, 'data', 'python_coverage_head.xml'), 'utf8');
+      }
+      // Pass through all other file reads
+      return originalReadFileSync(filePath, encoding);
+    });
+
     // Mock GitHub context
     github.context = {
       repo: {
@@ -997,24 +1022,12 @@ describe('Coverage Action', () => {
       },
       payload: {
         pull_request: {
-          number: 123
+          number: 123,
+          base: { ref: 'main' },
+          head: { ref: 'feature' }
         }
       }
     };
-
-    // Read the coverage XML files from external files
-    const fs = require('fs');
-    const path = require('path');
-
-    const baseCoverageXML = fs.readFileSync(
-      path.join(__dirname, 'data', 'python_coverage_base.xml'),
-      'utf8'
-    );
-
-    const headCoverageXML = fs.readFileSync(
-      path.join(__dirname, 'data', 'python_coverage_head.xml'),
-      'utf8'
-    );
 
     // Mock PR changed files with python_coverage prefix
     const mockListFiles = jest.fn().mockResolvedValue({
@@ -1025,7 +1038,7 @@ describe('Coverage Action', () => {
     });
 
     // Mock Octokit
-    const mockCreateComment = jest.fn();
+    const mockCreateComment = jest.fn().mockResolvedValue({});
     const mockListComments = jest.fn().mockResolvedValue({ data: [] });
     github.getOctokit = jest.fn().mockReturnValue({
       rest: {
@@ -1040,21 +1053,19 @@ describe('Coverage Action', () => {
     });
 
     // Setup the Storage mock with proper file structure
+    const baseCoverageXML = originalReadFileSync(path.join(__dirname, 'data', 'python_coverage_base.xml'), 'utf8');
+    const headCoverageXML = originalReadFileSync(path.join(__dirname, 'data', 'python_coverage_head.xml'), 'utf8');
+
     Storage.mockImplementation(() => ({
       bucket: jest.fn().mockReturnValue({
-        getFiles: jest.fn().mockImplementation(async ({ prefix }) => {
-          if (prefix.includes('main')) {
-            return [[{ name: 'repo/main/20240315_120000/coverage.xml' }]];
-          }
-          if (prefix.includes('feature')) {
-            return [[{ name: 'repo/feature/20240315_120000/coverage.xml' }]];
-          }
-          return [[]];
-        }),
+        getFiles: jest.fn().mockResolvedValue([[
+          { name: 'repo/main/20240315_120000/coverage.xml' },
+          { name: 'repo/feature/20240315_120000/coverage.xml' }
+        ]]),
         file: jest.fn().mockReturnValue({
           download: jest.fn()
-            .mockResolvedValueOnce([baseCoverageXML])
-            .mockResolvedValueOnce([headCoverageXML])
+            .mockResolvedValueOnce([Buffer.from(baseCoverageXML)])
+            .mockResolvedValueOnce([Buffer.from(headCoverageXML)])
         })
       })
     }));
