@@ -30,16 +30,15 @@ async function run() {
         coverageRcConfig = ini.parse(rawConfig);
         core.info(`Loaded .coveragerc configuration from ${coverageRcPath}`);
 
-        // Extract omitted paths manually
-        const omittedPaths = Object.keys(coverageRcConfig.run)
-          .filter(key =>
-            key !== 'source' &&
-            key !== 'omit' &&
-            key.includes('*')
-          );
+        // Extract omitted paths from the run section
+        if (coverageRcConfig.run) {
+          const omitPaths = Object.keys(coverageRcConfig.run)
+            .filter(key => key !== 'source' && key !== 'omit' && coverageRcConfig.run[key] === true)
+            .map(key => key);
 
-        if (omittedPaths.length > 0) {
-          core.info(`Omitted paths from coverage: ${omittedPaths.join(', ')}`);
+          if (omitPaths.length > 0) {
+            core.info(`Omitted paths from coverage: ${omitPaths.join(', ')}`);
+          }
         }
       } catch (error) {
         core.warning(`Failed to parse .coveragerc: ${error.message}`);
@@ -303,11 +302,13 @@ async function getLatestTimestamp(bucket, prefix) {
     // Extract unique timestamp folders
     const timestamps = files
       .map(file => {
-        const match = file.name.match(new RegExp(`${prefix}/(\\d{8}_\\d{6})/`));
+        const match = file.name.match(/\/(\d{8}_\d{6})\//);
         return match ? match[1] : null;
       })
-      .filter(Boolean) // Remove nulls
-      .filter((value, index, self) => self.indexOf(value) === index); // Remove duplicates
+      // Remove nulls
+      .filter(Boolean)
+      // Remove duplicates
+      .filter((value, index, self) => self.indexOf(value) === index);
 
     if (timestamps.length === 0) {
       return null;
@@ -496,21 +497,69 @@ function getFilesWithCoverageChanges(baseCoverage, headCoverage, prChangedFiles 
     // If no omit patterns, return false
     if (omitPatterns.length === 0) return false;
 
-    // Use minimatch for pattern matching with partial path support
-    return omitPatterns.some(pattern => {
-      // Normalize paths to use forward slashes and trim
-      const normalizedPattern = pattern.trim().replace(/\\/g, '/');
-      const normalizedFilename = filename.trim().replace(/\\/g, '/');
+    // Normalize the filename using the same logic as normalizePath
+    const normalizedFilename = normalizePath(filename);
 
-      // Check if the pattern matches the entire filename or any of its path segments
-      // Use ** to match multiple path segments
-      return minimatch.minimatch(normalizedFilename, normalizedPattern, { matchBase: true });
+    return omitPatterns.some(pattern => {
+      // Normalize pattern and convert shell-style glob to minimatch pattern
+      let normalizedPattern = pattern.trim();
+      // Convert Windows paths to Unix
+      normalizedPattern = normalizedPattern.replace(/\\/g, '/');
+      // Remove ./ prefix
+      normalizedPattern = normalizedPattern.replace(/^\.\//, '');
+      // Convert leading */ to **/ for recursive matching
+      normalizedPattern = normalizedPattern.replace(/^\*\//g, '**/');
+      // Convert trailing /* to /** for recursive matching
+      normalizedPattern = normalizedPattern.replace(/\/\*$/g, '/**');
+
+      // Try both exact match and with leading **/ for nested paths
+      return minimatch.minimatch(normalizedFilename, normalizedPattern, { dot: true }) ||
+        minimatch.minimatch(normalizedFilename, `**/${normalizedPattern}`, { dot: true });
     });
   };
 
-  // Helper to normalize file paths by removing python_coverage prefix
+  // Helper to get source path from .coveragerc
+  const getSourcePath = () => {
+    try {
+      if (fs.existsSync('.coveragerc')) {
+        const content = fs.readFileSync('.coveragerc', 'utf8');
+        const ini = require('ini');
+        const config = ini.parse(content);
+
+        // Check if run section and source exists
+        if (config.run && config.run.source) {
+          // If source is a string, use it directly
+          if (typeof config.run.source === 'string') {
+            return config.run.source.trim();
+          }
+          // If source is an array, use the first non-empty value
+          if (Array.isArray(config.run.source)) {
+            const source = config.run.source.find(s => s && s.trim());
+            if (source) {
+              return source.trim();
+            }
+          }
+        }
+      }
+      return null;
+    } catch (error) {
+      core.warning('Error reading source from .coveragerc: ' + error.message);
+      return null;
+    }
+  };
+
+  // Helper to normalize file paths using source from .coveragerc if available
   const normalizePath = (path) => {
-    return path.replace(/^python_coverage\//, '');
+    const sourcePrefix = getSourcePath();
+    // Convert Windows paths to Unix
+    let normalizedPath = path.trim().replace(/\\/g, '/');
+    // Remove ./ prefix
+    normalizedPath = normalizedPath.replace(/^\.\//, '');
+    // Remove source prefix if exists
+    if (sourcePrefix) {
+      normalizedPath = normalizedPath.replace(new RegExp(`^${sourcePrefix}\/`), '');
+    }
+    return normalizedPath;
   };
 
   // Helper to calculate file coverage and get missing lines

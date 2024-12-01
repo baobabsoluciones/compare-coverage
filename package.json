@@ -1,12 +1,13 @@
 {
   "name": "coverage-action",
-  "version": "0.0.16",
+  "version": "0.0.17",
   "description": "Test repo to create a custom github action for checking the coverage for PR",
   "main": "index.js",
   "scripts": {
     "test": "jest",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
+    "test:debug": "node --inspect-brk node_modules/.bin/jest --runInBand",
     "build": "ncc build src/index.js -o dist"
   },
   "keywords": [],
@@ -30,12 +31,19 @@
       "src/**/*.js"
     ],
     "coverageReporters": [
-      "cobertura"
+      "text",
+      [
+        "cobertura",
+        {
+          "file": "coverage.xml"
+        }
+      ]
     ],
     "coverageDirectory": "coverage",
     "coveragePathIgnorePatterns": [
       "/node_modules/"
     ],
+    "testEnvironment": "node",
     "coverageThreshold": {
       "global": {
         "branches": 70,

@@ -1,0 +1,55 @@
+{
+  "overall": {
+    "baseCoverage": 75.31,
+    "headCoverage": 78.02,
+    "coverageDiff": 2.71,
+    "files": {
+      "base": 4,
+      "head": 2,
+      "difference": -2
+    },
+    "lines": {
+      "base": 81,
+      "head": 91,
+      "difference": 10
+    },
+    "branches": {
+      "base": 50,
+      "head": 58,
+      "difference": 8
+    },
+    "hits": {
+      "base": 61,
+      "head": 71,
+      "difference": 10
+    },
+    "misses": {
+      "base": 20,
+      "head": 20,
+      "difference": 0
+    },
+    "partials": {
+      "base": 0,
+      "head": 0,
+      "difference": 0
+    }
+  },
+  "fileChanges": [
+    {
+      "filename": "module/__init__.py",
+      "baseCoverage": 100.00,
+      "headCoverage": 0.00,
+      "coverageChange": -100.00
+    },
+    {
+      "filename": "module/string_ops.py",
+      "baseCoverage": 64.00,
+      "headCoverage": 70.97,
+      "coverageChange": 6.97,
+      "missingLines": "8-10, 12-13, 16-17, 19, 34, 37, 41-44, 46, 59, 62, 74"
+    }
+  ],
+  "uncoveredFiles": [
+    "module/__init__.py"
+  ]
+}
