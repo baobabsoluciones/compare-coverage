@@ -1351,126 +1351,173 @@ describe('Coverage Action', () => {
   });
 
   test('should exclude omitted files from PR comment', async () => {
-    try {
-      // Load test data
-      const baseCoverageXML = fs.readFileSync(
-        path.join(__dirname, 'data', 'base-coverage.xml'),
-        'utf8'
-      );
-      const headCoverageXML = fs.readFileSync(
-        path.join(__dirname, 'data', 'head-coverage.xml'),
-        'utf8'
-      );
-      const prChangedFiles = JSON.parse(
-        fs.readFileSync(
-          path.join(__dirname, 'data', 'pr-changed-files.json'),
-          'utf8'
-        )
-      );
-      const coverageRcContent = fs.readFileSync(
-        path.join(__dirname, 'data', '.coveragerc'),
-        'utf8'
-      );
+    // Mock all file system operations before any file reads
+    const mockFileData = {
+      'base-coverage.xml': `<?xml version="1.0" ?>
+        <coverage version="7.3.2" timestamp="1701175650">
+          <packages>
+            <package name=".">
+              <classes>
+                <class filename="module/example.py" name="module/example.py">
+                  <methods/>
+                  <lines>
+                    <line number="1" hits="1"/>
+                    <line number="2" hits="0"/>
+                  </lines>
+                </class>
+              </classes>
+            </package>
+          </packages>
+        </coverage>`,
+      'head-coverage.xml': `<?xml version="1.0" ?>
+        <coverage version="7.3.2" timestamp="1701175650">
+          <packages>
+            <package name=".">
+              <classes>
+                <class filename="module/example.py" name="module/example.py">
+                  <methods/>
+                  <lines>
+                    <line number="1" hits="1"/>
+                    <line number="2" hits="1"/>
+                  </lines>
+                </class>
+              </classes>
+            </package>
+          </packages>
+        </coverage>`,
+      '.coveragerc': `[run]
+omit = 
+    */site-packages/*
+    */tests/*
+    setup.py
+    module/example.py`
+    };
 
-      // Mock fs.existsSync to return true for .coveragerc
-      fs.existsSync = jest.fn().mockReturnValue(true);
+    // Store the original readFileSync
+    const originalReadFileSync = fs.readFileSync;
 
-      // Mock fs.readFileSync for .coveragerc
-      fs.readFileSync = jest.fn()
-        .mockReturnValueOnce(baseCoverageXML)
-        .mockReturnValueOnce(headCoverageXML)
-        .mockReturnValueOnce(coverageRcContent);
-
-      // Mock GitHub context
-      github.context = {
-        repo: {
-          owner: 'owner',
-          repo: 'repo'
-        },
-        payload: {
-          pull_request: {
-            number: 123,
-            base: { ref: 'main' },
-            head: { ref: 'feature-branch' }
-          }
-        }
-      };
-
-      // Mock core inputs
-      core.getInput = jest.fn().mockImplementation((name) => {
-        const inputs = {
-          gcp_credentials: '{"type": "service_account"}',
-          min_coverage: '80',
-          github_token: 'fake-token',
-          gcp_bucket: 'test-bucket',
-          show_missing_lines: 'true'
-        };
-        return inputs[name];
-      });
-
-      // Add more detailed logging
-      core.info = jest.fn(console.log);
-      core.warning = jest.fn(console.warn);
-      core.setFailed = jest.fn(console.error);
-
-      // Mock Octokit
-      const mockCreateComment = jest.fn();
-      const mockListComments = jest.fn().mockResolvedValue({ data: [] });
-      github.getOctokit = jest.fn().mockReturnValue({
-        rest: {
-          pulls: {
-            listFiles: jest.fn().mockResolvedValue({ data: prChangedFiles })
-          },
-          issues: {
-            createComment: mockCreateComment,
-            listComments: mockListComments
-          }
-        }
-      });
-
-      // Setup the Storage mock
-      const mockDownload = jest.fn()
-        .mockResolvedValueOnce([Buffer.from(baseCoverageXML)])
-        .mockResolvedValueOnce([Buffer.from(headCoverageXML)]);
-
-      const mockFile = jest.fn().mockReturnValue({
-        download: mockDownload
-      });
-
-      const mockGetFiles = jest.fn().mockResolvedValue([[
-        { name: 'repo/main/20241128_123234/coverage.xml' },
-        { name: 'repo/feature-branch/20241129_155650/coverage.xml' }
-      ]]);
-
-      Storage.mockImplementation(() => ({
-        bucket: jest.fn().mockReturnValue({
-          getFiles: mockGetFiles,
-          file: mockFile
-        })
-      }));
-
-      // Run the action and catch any errors
-      try {
-        await run();
-      } catch (runError) {
-        console.error('Action run failed:', runError);
-        throw runError;
+    // Setup all fs mocks at once
+    fs.existsSync = jest.fn().mockReturnValue(true);
+    fs.readFileSync = jest.fn().mockImplementation((filePath, options) => {
+      const fileName = path.basename(filePath);
+      // If it's one of our mock files, return the mock data
+      if (mockFileData[fileName]) {
+        return mockFileData[fileName];
       }
+      // Otherwise, call the original implementation
+      return originalReadFileSync(filePath, options);
+    });
 
-      // Verify comment was created
-      console.log('mockCreateComment calls:', mockCreateComment.mock.calls);
-      expect(mockCreateComment).toHaveBeenCalledTimes(1);
+    // Mock GitHub context
+    github.context = {
+      repo: {
+        owner: 'owner',
+        repo: 'repo'
+      },
+      payload: {
+        pull_request: {
+          number: 123,
+          base: { ref: 'main' },
+          head: { ref: 'feature-branch' }
+        }
+      }
+    };
 
-      // Get the comment body
-      const commentBody = mockCreateComment.mock.calls[0][0].body;
+    // Mock core inputs
+    core.getInput = jest.fn().mockImplementation((name) => {
+      const inputs = {
+        gcp_credentials: '{"type": "service_account"}',
+        min_coverage: '80',
+        github_token: 'fake-token',
+        gcp_bucket: 'test-bucket',
+        show_missing_lines: 'true'
+      };
+      return inputs[name];
+    });
 
-      // Verify the comment has the hidden tag to identify it
-      expect(commentBody).toMatch(/<!-- Coverage Report Bot -->/);
+    // Add debug logging
+    const infoMessages = [];
+    core.info = jest.fn(msg => infoMessages.push(msg));
+    core.warning = jest.fn();
+    core.setFailed = jest.fn(error => {
+      console.error('Action failed:', error);
+    });
 
-    } catch (error) {
-      console.error('Test failed with full error:', error);
-      throw error;
-    }
+    // Mock Octokit
+    const mockCreateComment = jest.fn().mockResolvedValue({});
+    const mockListComments = jest.fn().mockResolvedValue({ data: [] });
+    github.getOctokit = jest.fn().mockReturnValue({
+      rest: {
+        pulls: {
+          listFiles: jest.fn().mockResolvedValue({
+            data: [{ filename: 'module/example.py', status: 'modified' }]
+          })
+        },
+        issues: {
+          createComment: mockCreateComment,
+          listComments: mockListComments
+        }
+      }
+    });
+
+    // Setup the Storage mock
+    const mockDownload = jest.fn()
+      .mockResolvedValueOnce([Buffer.from(mockFileData['base-coverage.xml'])])
+      .mockResolvedValueOnce([Buffer.from(mockFileData['head-coverage.xml'])]);
+
+    const mockFile = jest.fn().mockReturnValue({
+      download: mockDownload
+    });
+
+    const mockGetFiles = jest.fn().mockResolvedValue([[
+      { name: 'repo/main/20241128_123234/coverage.xml' },
+      { name: 'repo/feature-branch/20241129_155650/coverage.xml' }
+    ]]);
+
+    Storage.mockImplementation(() => ({
+      bucket: jest.fn().mockReturnValue({
+        getFiles: mockGetFiles,
+        file: mockFile
+      })
+    }));
+
+    // Run the action
+    await run();
+
+    // Debug output
+    console.log('Info messages:', infoMessages);
+    console.log('Mock create comment calls:', mockCreateComment.mock.calls);
+
+    // Verify comment was created
+    expect(mockCreateComment).toHaveBeenCalledTimes(1);
+    const commentBody = mockCreateComment.mock.calls[0][0].body;
+
+    // Verify basic structure
+    expect(commentBody).toMatch(/<!-- Coverage Report Bot -->/);
+
+    // Verify overall coverage section
+    expect(commentBody).toMatch(/The overall coverage statistics of the PR are:/);
+    expect(commentBody).toMatch(/@@ Coverage Diff @@/);
+    expect(commentBody).toMatch(/## main\s+#feature-branch\s+\+\/-\s+##/);
+
+    // Verify coverage numbers
+    expect(commentBody).toMatch(/\+ Coverage\s+50\.00%\s+100\.00%\s+50\.00%/);
+
+    // Verify file statistics
+    expect(commentBody).toMatch(/Files\s+1\s+1\s+0/);
+    expect(commentBody).toMatch(/Lines\s+2\s+2\s+0/);
+    expect(commentBody).toMatch(/Branches\s+0\s+0\s+0/);
+
+    // Verify hits and misses
+    expect(commentBody).toMatch(/\+ Hits\s+1\s+2\s+1/);
+    expect(commentBody).toMatch(/\+ Misses\s+1\s+0\s+-1/);
+    expect(commentBody).toMatch(/Partials\s+0\s+0\s+0/);
+
+    // Verify file coverage section
+    expect(commentBody).toMatch(/The main files with changes are:/);
+    expect(commentBody).toMatch(/@@ File Coverage Diff @@/);
+    expect(commentBody).toMatch(/## File\s+main\s+feature-branch\s+\+\/-\s+##/);
+    expect(commentBody).toMatch(/\+ module\/example\.py\s+50\.00%\s+100\.00%\s+\+\s+50\.00%/);
   });
 });
 
