@@ -302,11 +302,13 @@ async function getLatestTimestamp(bucket, prefix) {
     // Extract unique timestamp folders
     const timestamps = files
       .map(file => {
-        const match = file.name.match(new RegExp(`${prefix}/(\\d{8}_\\d{6})/`));
+        const match = file.name.match(/\/(\d{8}_\d{6})\//);
         return match ? match[1] : null;
       })
-      .filter(Boolean) // Remove nulls
-      .filter((value, index, self) => self.indexOf(value) === index); // Remove duplicates
+      // Remove nulls
+      .filter(Boolean)
+      // Remove duplicates
+      .filter((value, index, self) => self.indexOf(value) === index);
 
     if (timestamps.length === 0) {
       return null;
@@ -500,11 +502,15 @@ function getFilesWithCoverageChanges(baseCoverage, headCoverage, prChangedFiles 
 
     return omitPatterns.some(pattern => {
       // Normalize pattern and convert shell-style glob to minimatch pattern
-      let normalizedPattern = pattern.trim()
-        .replace(/\\/g, '/')  // Convert Windows paths to Unix
-        .replace(/^\.\//, '')  // Remove ./ prefix
-        .replace(/^\*\//g, '**/') // Convert leading */ to **/ for recursive matching
-        .replace(/\/\*$/g, '/**'); // Convert trailing /* to /** for recursive matching
+      let normalizedPattern = pattern.trim();
+      // Convert Windows paths to Unix
+      normalizedPattern = normalizedPattern.replace(/\\/g, '/');
+      // Remove ./ prefix
+      normalizedPattern = normalizedPattern.replace(/^\.\//, '');
+      // Convert leading */ to **/ for recursive matching
+      normalizedPattern = normalizedPattern.replace(/^\*\//g, '**/');
+      // Convert trailing /* to /** for recursive matching
+      normalizedPattern = normalizedPattern.replace(/\/\*$/g, '/**');
 
       // Try both exact match and with leading **/ for nested paths
       return minimatch.minimatch(normalizedFilename, normalizedPattern, { dot: true }) ||
@@ -545,10 +551,15 @@ function getFilesWithCoverageChanges(baseCoverage, headCoverage, prChangedFiles 
   // Helper to normalize file paths using source from .coveragerc if available
   const normalizePath = (path) => {
     const sourcePrefix = getSourcePath();
-    return path.trim()
-      .replace(/\\/g, '/')  // Convert Windows paths to Unix
-      .replace(/^\.\//, '')  // Remove ./ prefix
-      .replace(sourcePrefix ? new RegExp(`^${sourcePrefix}\/`) : /^$/, '');  // Remove source prefix if exists
+    // Convert Windows paths to Unix
+    let normalizedPath = path.trim().replace(/\\/g, '/');
+    // Remove ./ prefix
+    normalizedPath = normalizedPath.replace(/^\.\//, '');
+    // Remove source prefix if exists
+    if (sourcePrefix) {
+      normalizedPath = normalizedPath.replace(new RegExp(`^${sourcePrefix}\/`), '');
+    }
+    return normalizedPath;
   };
 
   // Helper to calculate file coverage and get missing lines

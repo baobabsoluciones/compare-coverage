@@ -129,7 +129,7 @@ describe('Coverage Action', () => {
       expect.stringContaining('Found latest base coverage at timestamp: 20240315_120001')
     );
     expect(core.info).toHaveBeenCalledWith(
-      expect.stringContaining('Found latest head coverage at timestamp: 20240315_120000')
+      expect.stringContaining('Found latest head coverage at timestamp: 20240315_120001')
     );
   });
 
@@ -919,6 +919,13 @@ describe('Coverage Action', () => {
   });
 
   test('should post message when coverage report is missing', async () => {
+    // Set up environment variables
+    process.env = {
+      GITHUB_REPOSITORY: 'owner/repo',
+      GITHUB_BASE_REF: 'main',
+      GITHUB_HEAD_REF: 'feature-branch'
+    };
+
     // Mock GitHub context
     github.context = {
       repo: {
@@ -927,12 +934,17 @@ describe('Coverage Action', () => {
       },
       payload: {
         pull_request: {
-          number: 123
+          number: 123,
+          base: { ref: 'main' },
+          head: { ref: 'feature-branch' }
         }
       }
     };
 
-    // Mock Octokit
+    // Mock core.getInput
+    core.getInput = jest.fn().mockImplementation((name) => defaultMockInputs[name]);
+
+    // Mock Octokit with GitHub token
     const mockCreateComment = jest.fn();
     const mockListComments = jest.fn().mockResolvedValue({ data: [] });
     github.getOctokit = jest.fn().mockReturnValue({
@@ -947,10 +959,18 @@ describe('Coverage Action', () => {
     // Setup the Storage mock with no files for base branch
     Storage.mockImplementation(() => ({
       bucket: jest.fn().mockReturnValue({
-        getFiles: jest.fn().mockResolvedValue([[
-          // Only head branch has coverage
-          { name: 'repo/feature-branch/20240315_120000/coverage.xml' }
-        ]]),
+        getFiles: jest.fn().mockImplementation((options) => {
+          // Return different results based on the prefix
+          if (options.prefix.includes('/main/')) {
+            // No files for base branch (main)
+            return Promise.resolve([[]]);
+          } else {
+            // Files for head branch (feature-branch)
+            return Promise.resolve([[
+              { name: `repo/feature-branch/20240315_120000/coverage.xml` }
+            ]]);
+          }
+        }),
         file: jest.fn().mockReturnValue({
           download: jest.fn()
         })
