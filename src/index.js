@@ -32,9 +32,25 @@ async function run() {
 
         // Extract omitted paths from the run section
         if (coverageRcConfig.run) {
-          const omitPaths = Object.keys(coverageRcConfig.run)
+          let omitPaths = [];
+
+          // Get paths from omit array
+          if (coverageRcConfig.run.omit) {
+            // Handle both string and array formats
+            const omitArray = Array.isArray(coverageRcConfig.run.omit)
+              ? coverageRcConfig.run.omit
+              : coverageRcConfig.run.omit.split('\n').filter(line => line.trim());
+            omitPaths = omitPaths.concat(omitArray);
+          }
+
+          // Get additional boolean omit paths
+          const booleanOmits = Object.keys(coverageRcConfig.run)
             .filter(key => key !== 'source' && key !== 'omit' && coverageRcConfig.run[key] === true)
             .map(key => key);
+          omitPaths = omitPaths.concat(booleanOmits);
+
+          // Remove empty strings and trim
+          omitPaths = omitPaths.filter(path => path && path.trim()).map(path => path.trim());
 
           if (omitPaths.length > 0) {
             core.info(`Omitted paths from coverage: ${omitPaths.join(', ')}`);
@@ -491,16 +507,27 @@ function getFilesWithCoverageChanges(baseCoverage, headCoverage, prChangedFiles 
 
   // Helper to check if a file matches omit patterns
   const matchesOmitPattern = (filename) => {
-    // Check if there's an omit section in the coveragerc config
+    // Get omit patterns from .coveragerc
     const omitPatterns = coverageRcConfig.run?.omit || [];
 
-    // If no omit patterns, return false
-    if (omitPatterns.length === 0) return false;
+    // Convert to array if it's a string (single pattern)
+    const patterns = Array.isArray(omitPatterns)
+      ? omitPatterns
+      : omitPatterns.split('\n').filter(line => line.trim());
+
+    // Add boolean omit patterns
+    const booleanOmits = Object.keys(coverageRcConfig.run || {})
+      .filter(key => key !== 'source' && key !== 'omit' && coverageRcConfig.run[key] === true)
+      .map(key => key);
+
+    const allPatterns = [...patterns, ...booleanOmits]
+      .filter(pattern => pattern && pattern.trim())
+      .map(pattern => pattern.trim());
 
     // Normalize the filename using the same logic as normalizePath
     const normalizedFilename = normalizePath(filename);
 
-    return omitPatterns.some(pattern => {
+    return allPatterns.some(pattern => {
       // Normalize pattern and convert shell-style glob to minimatch pattern
       let normalizedPattern = pattern.trim();
       // Convert Windows paths to Unix
@@ -660,7 +687,7 @@ function getFilesWithCoverageChanges(baseCoverage, headCoverage, prChangedFiles 
     if (filename.match(/\.(py|js|java|jsx|ts|tsx)$/)) {
       const normalizedFilename = normalizePath(filename);
 
-      // Check if file matches omit patterns
+      // Skip files that match omit patterns for uncovered files list
       if (matchesOmitPattern(normalizedFilename)) {
         core.info(`Skipping uncovered file due to .coveragerc omit: ${normalizedFilename}`);
         return;
