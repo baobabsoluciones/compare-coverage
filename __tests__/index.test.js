@@ -19,6 +19,27 @@ const mockEnv = {
   GITHUB_HEAD_REF: 'feature-branch'
 };
 
+// Default mock inputs
+const defaultMockInputs = {
+  gcp_credentials: '{"type": "service_account"}',
+  min_coverage: '80',
+  github_token: 'fake-token',
+  gcp_bucket: 'test-bucket',
+  show_missing_lines: 'false'
+};
+
+// Default GitHub context mock
+const defaultGithubContext = {
+  repo: { owner: 'owner', repo: 'repo' },
+  payload: {
+    pull_request: {
+      number: 123,
+      base: { sha: 'base-sha' },
+      head: { sha: 'head-sha' }
+    }
+  }
+};
+
 function loadTestData(type) {
   const baseCoverageXML = fs.readFileSync(
     path.join(__dirname, 'data', `${type}-base.xml`),
@@ -40,6 +61,24 @@ function loadTestData(type) {
   };
 }
 
+// Setup default Storage mock
+function setupDefaultStorageMock(baseCoverage = '<?xml version="1.0"?><coverage line-rate="1.0"></coverage>',
+  headCoverage = '<?xml version="1.0"?><coverage line-rate="1.0"></coverage>') {
+  return {
+    bucket: jest.fn().mockReturnValue({
+      getFiles: jest.fn().mockResolvedValue([[
+        { name: 'repo/main/20240315_120000/coverage.xml' },
+        { name: 'repo/feature-branch/20240315_120000/coverage.xml' }
+      ]]),
+      file: jest.fn().mockReturnValue({
+        download: jest.fn()
+          .mockResolvedValueOnce([baseCoverage])
+          .mockResolvedValueOnce([headCoverage])
+      })
+    })
+  };
+}
+
 describe('Coverage Action', () => {
   beforeEach(() => {
     // Reset all mocks
@@ -49,30 +88,13 @@ describe('Coverage Action', () => {
     process.env = { ...process.env, ...mockEnv };
 
     // Mock core.getInput values
-    core.getInput.mockImplementation((name) => {
-      const inputs = {
-        gcp_credentials: '{"type": "service_account"}',
-        min_coverage: '80',
-        github_token: 'fake-token',
-        gcp_bucket: 'test-bucket',
-        show_missing_lines: 'false'
-      };
-      return inputs[name];
-    });
+    core.getInput.mockImplementation((name) => defaultMockInputs[name]);
 
-    // Mock Storage class with getFiles functionality
-    Storage.mockImplementation(() => ({
-      bucket: jest.fn().mockReturnValue({
-        getFiles: jest.fn().mockResolvedValue([[
-          { name: 'repo/main/20240315_120000/cobertura-coverage.xml' },
-          { name: 'repo/main/20240315_120001/cobertura-coverage.xml' },
-          { name: 'repo/feature-branch/20240315_120000/cobertura-coverage.xml' }
-        ]]),
-        file: jest.fn().mockReturnValue({
-          download: jest.fn().mockResolvedValue(['<coverage></coverage>'])
-        })
-      })
-    }));
+    // Set default GitHub context
+    github.context = defaultGithubContext;
+
+    // Setup default Storage mock
+    Storage.mockImplementation(() => setupDefaultStorageMock());
   });
 
   test('should fail if not run on pull request', async () => {
@@ -87,6 +109,20 @@ describe('Coverage Action', () => {
   });
 
   test('should find latest timestamp folders', async () => {
+    // Override the default Storage mock for this specific test
+    Storage.mockImplementation(() => ({
+      bucket: jest.fn().mockReturnValue({
+        getFiles: jest.fn().mockResolvedValue([[
+          { name: 'repo/main/20240315_120000/coverage.xml' },
+          { name: 'repo/main/20240315_120001/coverage.xml' }, // Later timestamp for base
+          { name: 'repo/feature-branch/20240315_120000/coverage.xml' }
+        ]]),
+        file: jest.fn().mockReturnValue({
+          download: jest.fn().mockResolvedValue(['<coverage></coverage>'])
+        })
+      })
+    }));
+
     await run();
 
     expect(core.info).toHaveBeenCalledWith(
