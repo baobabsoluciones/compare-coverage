@@ -30,16 +30,15 @@ async function run() {
         coverageRcConfig = ini.parse(rawConfig);
         core.info(`Loaded .coveragerc configuration from ${coverageRcPath}`);
 
-        // Extract omitted paths manually
-        const omittedPaths = Object.keys(coverageRcConfig.run)
-          .filter(key =>
-            key !== 'source' &&
-            key !== 'omit' &&
-            key.includes('*')
-          );
+        // Extract omitted paths from the run section
+        if (coverageRcConfig.run) {
+          const omitPaths = Object.keys(coverageRcConfig.run)
+            .filter(key => key !== 'source' && key !== 'omit' && coverageRcConfig.run[key] === true)
+            .map(key => key);
 
-        if (omittedPaths.length > 0) {
-          core.info(`Omitted paths from coverage: ${omittedPaths.join(', ')}`);
+          if (omitPaths.length > 0) {
+            core.info(`Omitted paths from coverage: ${omitPaths.join(', ')}`);
+          }
         }
       } catch (error) {
         core.warning(`Failed to parse .coveragerc: ${error.message}`);

@@ -6,7 +6,8 @@
   "scripts": {
     "test": "jest",
     "test:watch": "jest --watch",
-    "test:coverage": "jest --coverage",
+    "test:coverage": "jest --coverage --no-cache",
+    "test:debug": "node --inspect-brk node_modules/.bin/jest --runInBand",
     "build": "ncc build src/index.js -o dist"
   },
   "keywords": [],
@@ -30,12 +31,24 @@
       "src/**/*.js"
     ],
     "coverageReporters": [
-      "cobertura"
+      [
+        "text",
+        {
+          "skipFull": true
+        }
+      ],
+      [
+        "cobertura",
+        {
+          "file": "coverage.xml"
+        }
+      ]
     ],
     "coverageDirectory": "coverage",
     "coveragePathIgnorePatterns": [
       "/node_modules/"
     ],
+    "testEnvironment": "node",
     "coverageThreshold": {
       "global": {
         "branches": 70,
