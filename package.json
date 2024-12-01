@@ -32,7 +32,12 @@
     ],
     "coverageReporters": [
       "text",
-      "lcov"
+      [
+        "cobertura",
+        {
+          "file": "cobertura-coverage.xml"
+        }
+      ]
     ],
     "coverageDirectory": "coverage",
     "coverageProvider": "v8",
