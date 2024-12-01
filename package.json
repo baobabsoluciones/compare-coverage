@@ -6,7 +6,7 @@
   "scripts": {
     "test": "jest",
     "test:watch": "jest --watch",
-    "test:coverage": "jest --coverage --no-cache",
+    "test:coverage": "jest --coverage",
     "test:debug": "node --inspect-brk node_modules/.bin/jest --runInBand",
     "build": "ncc build src/index.js -o dist"
   },
@@ -31,18 +31,8 @@
       "src/**/*.js"
     ],
     "coverageReporters": [
-      [
-        "text",
-        {
-          "skipFull": true
-        }
-      ],
-      [
-        "cobertura",
-        {
-          "file": "coverage.xml"
-        }
-      ]
+      "text",
+      "cobertura"
     ],
     "coverageDirectory": "coverage",
     "coveragePathIgnorePatterns": [
