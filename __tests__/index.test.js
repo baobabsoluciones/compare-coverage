@@ -1351,48 +1351,6 @@ describe('Coverage Action', () => {
   });
 
   test('should exclude omitted files from PR comment', async () => {
-    // Mock all file system operations before any file reads
-    const mockFileData = {
-      'base-coverage.xml': `<?xml version="1.0" ?>
-        <coverage version="7.3.2" timestamp="1701175650">
-          <packages>
-            <package name=".">
-              <classes>
-                <class filename="module/example.py" name="module/example.py">
-                  <methods/>
-                  <lines>
-                    <line number="1" hits="1"/>
-                    <line number="2" hits="0"/>
-                  </lines>
-                </class>
-              </classes>
-            </package>
-          </packages>
-        </coverage>`,
-      'head-coverage.xml': `<?xml version="1.0" ?>
-        <coverage version="7.3.2" timestamp="1701175650">
-          <packages>
-            <package name=".">
-              <classes>
-                <class filename="module/example.py" name="module/example.py">
-                  <methods/>
-                  <lines>
-                    <line number="1" hits="1"/>
-                    <line number="2" hits="1"/>
-                  </lines>
-                </class>
-              </classes>
-            </package>
-          </packages>
-        </coverage>`,
-      '.coveragerc': `[run]
-omit = 
-    */site-packages/*
-    */tests/*
-    setup.py
-    module/example.py`
-    };
-
     // Store the original readFileSync
     const originalReadFileSync = fs.readFileSync;
 
@@ -1400,9 +1358,15 @@ omit =
     fs.existsSync = jest.fn().mockReturnValue(true);
     fs.readFileSync = jest.fn().mockImplementation((filePath, options) => {
       const fileName = path.basename(filePath);
-      // If it's one of our mock files, return the mock data
-      if (mockFileData[fileName]) {
-        return mockFileData[fileName];
+      // Handle specific test files
+      if (fileName === 'base-coverage.xml') {
+        return originalReadFileSync(path.join(__dirname, 'data', 'base-coverage.xml'), 'utf8');
+      }
+      if (fileName === 'head-coverage.xml') {
+        return originalReadFileSync(path.join(__dirname, 'data', 'head-coverage.xml'), 'utf8');
+      }
+      if (fileName === '.coveragerc') {
+        return originalReadFileSync(path.join(__dirname, 'data', '.coveragerc'), 'utf8');
       }
       // Otherwise, call the original implementation
       return originalReadFileSync(filePath, options);
@@ -1462,8 +1426,8 @@ omit =
 
     // Setup the Storage mock
     const mockDownload = jest.fn()
-      .mockResolvedValueOnce([Buffer.from(mockFileData['base-coverage.xml'])])
-      .mockResolvedValueOnce([Buffer.from(mockFileData['head-coverage.xml'])]);
+      .mockResolvedValueOnce([Buffer.from(fs.readFileSync(path.join(__dirname, 'data', 'base-coverage.xml'), 'utf8'))])
+      .mockResolvedValueOnce([Buffer.from(fs.readFileSync(path.join(__dirname, 'data', 'head-coverage.xml'), 'utf8'))]);
 
     const mockFile = jest.fn().mockReturnValue({
       download: mockDownload
@@ -1501,23 +1465,25 @@ omit =
     expect(commentBody).toMatch(/## main\s+#feature-branch\s+\+\/-\s+##/);
 
     // Verify coverage numbers
-    expect(commentBody).toMatch(/\+ Coverage\s+50\.00%\s+100\.00%\s+50\.00%/);
+    expect(commentBody).toMatch(/- Coverage\s+75\.31%\s+78\.02%\s+2\.71%/);
 
     // Verify file statistics
-    expect(commentBody).toMatch(/Files\s+1\s+1\s+0/);
-    expect(commentBody).toMatch(/Lines\s+2\s+2\s+0/);
-    expect(commentBody).toMatch(/Branches\s+0\s+0\s+0/);
+    expect(commentBody).toMatch(/Files\s+4\s+2\s+-2/);
+    expect(commentBody).toMatch(/Lines\s+81\s+91\s+10/);
+    expect(commentBody).toMatch(/Branches\s+50\s+58\s+8/);
 
     // Verify hits and misses
-    expect(commentBody).toMatch(/\+ Hits\s+1\s+2\s+1/);
-    expect(commentBody).toMatch(/\+ Misses\s+1\s+0\s+-1/);
+    expect(commentBody).toMatch(/\+ Hits\s+61\s+71\s+10/);
+    expect(commentBody).toMatch(/Misses\s+20\s+20\s+0/);
     expect(commentBody).toMatch(/Partials\s+0\s+0\s+0/);
 
     // Verify file coverage section
     expect(commentBody).toMatch(/The main files with changes are:/);
     expect(commentBody).toMatch(/@@ File Coverage Diff @@/);
     expect(commentBody).toMatch(/## File\s+main\s+feature-branch\s+\+\/-\s+##/);
-    expect(commentBody).toMatch(/\+ module\/example\.py\s+50\.00%\s+100\.00%\s+\+\s+50\.00%/);
+    expect(commentBody).toMatch(/- module\/__init__\.py\s+100\.00%\s+0\.00%\s+-100\.00%/);
+    expect(commentBody).toMatch(/- module\/string_ops\.py\s+64\.00%\s+70\.97%\s+\+\s+6\.97%/);
+    expect(commentBody).toMatch(/Missing lines: 8-10, 12-13, 16-17, 19, 34, 37, 41-44, 46, 59, 62, 74/);
   });
 });
 
