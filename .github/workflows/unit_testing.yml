@@ -27,9 +27,7 @@ jobs:
         run: npm ci
 
       - name: Run unit tests with coverage
-        run: |
-          npm run test:coverage
-          mv coverage/cobertura-coverage.xml coverage/coverage.xml
+        run: npm run test:coverage
 
       - name: Upload coverage reports
         uses: actions/upload-artifact@v4
